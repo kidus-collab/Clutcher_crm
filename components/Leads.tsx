@@ -1,0 +1,952 @@
+import React, { useEffect, useState } from 'react';
+import GlassCard from './ui/GlassCard';
+import { 
+  Search, 
+  Filter, 
+  MoreVertical,
+  Globe,
+  Mail,
+  Linkedin,
+  ArrowRight,
+  Sparkles,
+  LayoutGrid,
+  BarChart3,
+  Users,
+  PieChart as PieIcon,
+  TrendingUp,
+  Target,
+  Table as TableIcon,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  Activity,
+  Zap,
+  TrendingDown,
+  Timer,
+  Send,
+  Loader2,
+  Trash2,
+  AlertTriangle,
+  X,
+  CheckCircle2,
+  Star,
+  FileSignature,
+  PlusCircle,
+  Building,
+  UserPlus
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { getLeads, updateLeadStatus, deleteLead, createOffer, saveBusiness, addToLeads, getOutreachTrackingLeads, getOffersLeads, getClosedLeads, supabase } from '../lib/database/supabase';
+import { Lead, Business, SocialProfile } from '../types';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  ResponsiveContainer, 
+  Tooltip, 
+  PieChart, 
+  Pie, 
+  Cell,
+  Legend,
+  CartesianGrid,
+  AreaChart,
+  Area,
+  ComposedChart,
+  Line
+} from 'recharts';
+
+// Function to format date and time with spaces and UTC+3 Nairobi timezone
+const formatDateTime = (dateString: string) => {
+  if (!dateString) return '';
+  
+  try {
+    const date = new Date(dateString);
+    
+    // Format date part
+    const datePart = date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+    
+    // Format time part
+    const timePart = date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    
+    return `${datePart} ${timePart} UTC+3 (Nairobi)`;
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return dateString;
+  }
+};
+
+const Leads: React.FC = () => {
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<'board' | 'table' | 'analytics'>('board');
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Add Lead Modal State
+  const [showAddLeadModal, setShowAddLeadModal] = useState(false);
+  const [newLeadName, setNewLeadName] = useState('');
+  const [newLeadWebsite, setNewLeadWebsite] = useState('');
+  const [newLeadEmail, setNewLeadEmail] = useState('');
+  const [newLeadPhone, setNewLeadPhone] = useState('');
+  const [newLeadDescription, setNewLeadDescription] = useState('');
+  
+  // Social media fields
+  const [newLeadTwitter, setNewLeadTwitter] = useState('');
+  const [newLeadInstagram, setNewLeadInstagram] = useState('');
+  const [newLeadTiktok, setNewLeadTiktok] = useState('');
+  const [newLeadLinkedin, setNewLeadLinkedin] = useState('');
+  const [newLeadTelegram, setNewLeadTelegram] = useState('');
+
+  useEffect(() => {
+    fetchLeads();
+    
+    // Set up an event listener for storage changes (when leads are added from FindCustomers)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'leadsUpdated') {
+        fetchLeads();
+      }
+    };
+    
+    // Also check for updates when window gains focus (user navigates back to this tab)
+    const handleFocus = () => {
+      fetchLeads();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  const fetchLeads = async () => {
+    setLoading(true);
+    
+    // Get regular leads for 'New' column
+    const regularLeads = await getLeads();
+    const activeRegularLeads = regularLeads.filter(l => l.status !== 'Closed');
+    
+    // Get closed leads for 'Converted' column
+    const closedLeads = await getClosedLeads();
+    
+    // Get outreach tracking leads for 'No Reply' column
+    const outreachTrackingLeads = await getOutreachTrackingLeads();
+    
+    // Get offers leads for 'Negotiations' column
+    const offersLeads = await getOffersLeads();
+    
+    // Combine all leads for filtering
+    const allLeads = [...activeRegularLeads, ...closedLeads, ...outreachTrackingLeads, ...offersLeads];
+    setLeads(allLeads);
+    setLoading(false);
+  };
+
+  // Filter logic
+  const filteredLeads = leads.filter(lead => {
+    const matchesSearch =
+      lead.business.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      lead.business.website.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (lead.business.email && lead.business.email.toLowerCase().includes(searchQuery.toLowerCase()));
+    
+    return matchesSearch;
+  });
+
+  // Organize columns using specific data sources
+  const columns = {
+    'New': filteredLeads.filter(l => l.status === 'New' && l.source !== 'Outreach Tracking' && l.source !== 'Offer' && l.source !== 'Closed'),
+    'No Reply': filteredLeads.filter(l => l.status === 'No Reply' || l.source === 'Outreach Tracking'),
+    'Negotiations': filteredLeads.filter(l => l.status === 'Negotiations' || l.source === 'Offer'),
+    'Converted': filteredLeads.filter(l => l.status === 'Converted' && l.source !== 'Outreach Tracking' && l.source !== 'Offer' && l.source !== 'Closed'),
+  };
+
+  const getStatusColor = (status: string) => {
+      switch(status) {
+          case 'New': return 'bg-blue-500';
+          case 'No Reply': return 'bg-slate-400';
+          case 'Negotiations': return 'bg-indigo-500';
+          case 'Converted': return 'bg-emerald-500';
+          default: return 'bg-slate-400';
+      }
+  };
+
+  const getStatusBadge = (status: string) => {
+      switch(status) {
+          case 'New': return 'text-blue-600 bg-blue-50 border-blue-100';
+          case 'No Reply': return 'text-slate-600 bg-slate-50 border-slate-100';
+          case 'Negotiations': return 'text-indigo-600 bg-indigo-50 border-indigo-100';
+          case 'Converted': return 'text-emerald-600 bg-emerald-50 border-emerald-100';
+          default: return 'text-slate-600 bg-slate-50 border-slate-100';
+      }
+  };
+
+  const getStatusBg = (status: string) => {
+      switch(status) {
+          case 'New': return 'bg-blue-50/50 border-blue-100';
+          case 'No Reply': return 'bg-slate-50/50 border-slate-100';
+          case 'Negotiations': return 'bg-indigo-50/50 border-indigo-100';
+          case 'Converted': return 'bg-emerald-50/50 border-emerald-100';
+          default: return 'bg-slate-50/50 border-slate-100';
+      }
+  };
+
+  // --- Analytical Calculations ---
+  const COLORS: Record<string, string> = {
+      'New': '#3b82f6',
+      'No Reply': '#94a3b8',
+      'Negotiations': '#6366f1',
+      'Converted': '#10b981'
+  };
+
+  // Outcome Summary - filter out tracking/offer leads for analytics
+  const regularLeads = leads.filter(l => l.source !== 'Outreach Tracking' && l.source !== 'Offer');
+  const interestedCount = regularLeads.filter(l => l.outcome === 'Interested').length;
+  const noReplyCount = regularLeads.filter(l => l.outcome === 'No Reply').length;
+  const badFitCount = regularLeads.filter(l => l.outcome === 'Bad Fit').length;
+
+  // Sophisticated Pipeline Health
+  const funnelData = [
+    { name: 'Total Scoped', value: 100, fill: '#f1f5f9' },
+    { name: 'Initial Contact', value: 85, fill: '#94a3b8' },
+    { name: 'Qualified', value: 62, fill: '#6366f1' },
+    { name: 'In Discussion', value: columns.Negotiations.length + 15, fill: '#8b5cf6' },
+    { name: 'Converted', value: columns.Converted.length + 5, fill: '#10b981' },
+  ];
+
+  // Engagement Intensity Data
+  const intensityData = [
+    { day: 'Mon', touches: 45, conversions: 2 },
+    { day: 'Tue', touches: 52, conversions: 4 },
+    { day: 'Wed', touches: 68, conversions: 3 },
+    { day: 'Thu', touches: 58, conversions: 5 },
+    { day: 'Fri', touches: 48, conversions: 8 },
+  ];
+
+  const handleAddLead = async () => {
+    // Validation: Business name is mandatory, and at least one of website, email, or social media
+    if (!newLeadName || (!newLeadWebsite && !newLeadEmail && !newLeadTwitter && !newLeadInstagram && !newLeadTiktok && !newLeadLinkedin && !newLeadTelegram)) {
+      alert('Business name is required and at least one of website, email, or social media must be provided');
+      return;
+    }
+    
+    try {
+      // Create social media array
+      const socials: SocialProfile[] = [];
+      if (newLeadTwitter) socials.push({ platform: 'twitter' as const, url: newLeadTwitter, handle: `@${newLeadTwitter}` });
+      if (newLeadInstagram) socials.push({ platform: 'instagram' as const, url: newLeadInstagram, handle: `@${newLeadInstagram}` });
+      if (newLeadTiktok) socials.push({ platform: 'tiktok' as const, url: newLeadTiktok, handle: `@${newLeadTiktok}` });
+      if (newLeadLinkedin) socials.push({ platform: 'linkedin' as const, url: newLeadLinkedin, handle: newLeadLinkedin });
+      if (newLeadTelegram) socials.push({ platform: 'telegram' as const, url: newLeadTelegram, handle: `@${newLeadTelegram}` });
+      
+      // Create business first
+      const business = await saveBusiness({
+        name: newLeadName,
+        website: newLeadWebsite,
+        email: newLeadEmail,
+        phone: newLeadPhone,
+        description: newLeadDescription,
+        socials: socials
+      });
+      
+      if (!business) {
+        alert('Failed to create business. Please try again.');
+        return;
+      }
+      
+      // Create lead for business
+      const lead = await addToLeads(business.id);
+      
+      if (!lead) {
+        alert('Failed to create lead. Please try again.');
+        return;
+      }
+      
+      // Update leads list
+      setLeads(prev => [...prev, lead]);
+      
+      // Close modal
+      setShowAddLeadModal(false);
+      setNewLeadName('');
+      setNewLeadWebsite('');
+      setNewLeadEmail('');
+      setNewLeadPhone('');
+      setNewLeadDescription('');
+      setNewLeadTwitter('');
+      setNewLeadInstagram('');
+      setNewLeadTiktok('');
+      setNewLeadLinkedin('');
+      setNewLeadTelegram('');
+      
+      // Show success notification
+      alert('Lead created successfully!');
+    } catch (error) {
+      console.error('Error adding lead:', error);
+      alert('An error occurred while adding lead.');
+    }
+  };
+
+  const handleDeleteLead = async (leadId: string) => {
+    setIsDeleting(true);
+    
+    try {
+      const success = await deleteLead(leadId);
+      
+      if (success) {
+        // Remove lead from UI across all columns
+        setLeads(prev => prev.filter(l => l.id !== leadId));
+        setDeleteConfirmId(null);
+      } else {
+        alert('Failed to delete lead. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error deleting lead:', error);
+      alert('An error occurred while deleting lead.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleOutreach = async (lead: Lead) => {
+      // Track outreach button click in localStorage
+      const outreachClicks = JSON.parse(localStorage.getItem('outreachClicks') || '[]');
+      outreachClicks.push({
+        leadId: lead.id,
+        leadName: lead.business.name,
+        timestamp: new Date().toISOString(),
+        source: 'leads_page'
+      });
+      localStorage.setItem('outreachClicks', JSON.stringify(outreachClicks));
+      
+      // Add entry to outreach_tracking table
+      try {
+        const { error: trackingError } = await supabase
+          .from('outreach_tracking')
+          .insert({
+            lead_id: lead.id,
+            business_name: lead.business.name,
+            action_type: 'outreach_button_clicked',
+            action_details: {
+              button_clicked: 'outreach_button',
+              timestamp: new Date().toISOString()
+            },
+            source_page: 'leads_page'
+          });
+        
+        if (trackingError) {
+          console.error('Failed to track outreach button click:', trackingError);
+          console.error('Tracking error details:', trackingError);
+        } else {
+          console.log('Successfully tracked outreach button click for:', lead.business.name);
+        }
+      } catch (error) {
+        console.error('Exception during outreach tracking:', error);
+      }
+      
+      // Update UI immediately (move to Outreach status)
+      const newStatus = 'Outreach';
+
+      setLeads(prev => prev.map(l =>
+        l.id === lead.id ? { ...l, status: newStatus as any } : l
+      ));
+  
+      // Update in database
+      const result = await updateLeadStatus(lead.id, newStatus as any);
+      
+      if (!result.success) {
+          // Revert if failed
+          setLeads(prev => prev.map(l =>
+              l.id === lead.id ? { ...l, status: lead.status } : l
+          ));
+          alert(`Failed to update lead status: ${result.error || 'Unknown error'}`);
+          return;
+      }
+      
+      // Navigate to outreach with lead id to preserve context
+      navigate(`/outreach?lead=${lead.id}`);
+  };
+
+  return (
+    <div className="h-screen flex flex-col p-6 lg:p-10 overflow-hidden max-w-[1600px] mx-auto">
+      {/* Header Section */}
+      <div className="shrink-0 mb-6">
+        <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Leads Central</h1>
+            <p className="text-slate-500 text-sm mt-1">Advanced prospect intelligence & pipeline oversight.</p>
+            <button
+                onClick={() => setShowAddLeadModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-purple-700 transition-all mt-4"
+            >
+                <PlusCircle className="w-5 h-5" />
+                <span>Add Lead</span>
+            </button>
+          </div>
+          <div className="flex gap-3">
+             <div className="relative group">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+               <input 
+                 type="text" 
+                 value={searchQuery}
+                 onChange={(e) => setSearchQuery(e.target.value)}
+                 placeholder="Search prospects..." 
+                 className="pl-10 pr-4 py-2 bg-white/60 backdrop-blur-sm border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-48 transition-all"
+               />
+             </div>
+             <button className="p-2 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+               <Filter className="w-4 h-4" />
+             </button>
+          </div>
+        </div>
+
+        {/* Sub-Nav Toggle */}
+        <div className="mt-8 flex items-center gap-8 border-b border-slate-200 relative">
+          <button 
+            onClick={() => setActiveTab('board')}
+            className={`pb-3 text-sm font-bold flex items-center gap-2 transition-colors relative z-10 ${activeTab === 'board' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <LayoutGrid className="w-4 h-4" /> Board
+          </button>
+          <button 
+            onClick={() => setActiveTab('table')}
+            className={`pb-3 text-sm font-bold flex items-center gap-2 transition-colors relative z-10 ${activeTab === 'table' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <TableIcon className="w-4 h-4" /> List
+          </button>
+          <button 
+            onClick={() => setActiveTab('analytics')}
+            className={`pb-3 text-sm font-bold flex items-center gap-2 transition-colors relative z-10 ${activeTab === 'analytics' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <BarChart3 className="w-4 h-4" /> Analytics
+          </button>
+
+          {/* Sliding Bottom Stroke */}
+          <div 
+            className="absolute bottom-[-1px] h-[3px] bg-indigo-500 rounded-full transition-all duration-300 ease-in-out z-0"
+            style={{ 
+              width: activeTab === 'board' ? '70px' : activeTab === 'table' ? '70px' : '90px',
+              left: activeTab === 'board' ? '0' : activeTab === 'table' ? '100px' : '205px'
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-hidden relative">
+        {loading && (
+          <div className="flex-1 flex justify-center items-center">
+              <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+          </div>
+        )}
+
+        {!loading && activeTab === 'board' && (
+          <div className="h-full overflow-x-auto pb-6 scrollbar-hide">
+            <div className="flex h-full gap-6 min-w-max px-1">
+                {Object.entries(columns).map(([status, leads]) => (
+                    <div key={status} className="w-[320px] flex flex-col h-full">
+                        <div className={`p-3 rounded-xl mb-4 flex justify-between items-center border ${getStatusBg(status)}`}>
+                            <div className="flex items-center gap-2">
+                                <div className={`w-2.5 h-2.5 rounded-full ${getStatusColor(status)} shadow-sm`}></div>
+                                <span className="font-bold text-slate-700 text-xs uppercase tracking-wider">{status}</span>
+                            </div>
+                            <span className="bg-white/80 px-2 py-0.5 rounded-md text-[10px] font-bold text-slate-500 border border-white/50">
+                                {leads.length}
+                            </span>
+                        </div>
+                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-hide pb-20">
+                            {leads.map((lead) => {
+                                // Determine correct route based on column status
+                                const getRouteForLead = (leadStatus: string, leadSource: string) => {
+                                    if (leadStatus === 'Negotiations' || leadSource === 'Offer') {
+                                        return `/offers?lead=${lead.id}`;
+                                    } else if (leadStatus === 'Converted' || leadSource === 'Closed') {
+                                        return `/closed?lead=${lead.id}`;
+                                    } else {
+                                        return `/outreach?lead=${lead.id}`;
+                                    }
+                                };
+
+                                const route = getRouteForLead(lead.status, lead.source || '');
+                                
+                                return (
+                                <GlassCard
+                                    key={lead.id}
+                                    className="p-5 group relative border-l-4 hover:shadow-xl transition-all cursor-pointer overflow-visible"
+                                    hoverEffect
+                                    onClick={() => navigate(route)}
+                                    style={{ borderLeftColor: COLORS[status] || 'transparent' }}
+                                >
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600 font-bold text-sm shadow-sm">
+                                                {lead.business.name.substring(0, 1)}
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-slate-800 text-sm leading-tight group-hover:text-indigo-600 transition-colors">{lead.business.name}</h3>
+                                                <div className="flex items-center gap-1 mt-1 text-[10px] text-slate-400 font-medium">
+                                                   <Globe className="w-3 h-3" /> {lead.business.website}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(lead.id); }}
+                                          className="text-slate-300 hover:text-rose-600 transition-colors p-1"
+                                          title="Delete Lead"
+                                        >
+                                            <MoreVertical className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <div className="flex items-center justify-between pt-4 border-t border-slate-100/60 mt-2">
+                                        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
+                                            <Clock className="w-3 h-3" /> {formatDateTime(lead.lastContact)}
+                                        </div>
+                                        <div className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all">
+                                            {lead.status === 'Negotiations' ? 'View Offers' : lead.status === 'Converted' ? 'View Closed' : 'Outreach'} <ArrowRight className="w-3 h-3" />
+                                        </div>
+                                    </div>
+                                </GlassCard>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {!loading && activeTab === 'table' && (
+          <div className="h-full flex flex-col animate-fade-in overflow-hidden">
+            <div className="overflow-x-auto h-full scrollbar-hide py-2">
+                <table className="w-full text-left border-separate border-spacing-y-2 px-1">
+                  <thead>
+                    <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      <th className="px-6 py-4">Prospect</th>
+                      <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4">Pipeline Value</th>
+                      <th className="px-6 py-4">Velocity</th>
+                      <th className="px-6 py-4">Outcome</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLeads.map((lead) => {
+                       // Determine correct route based on column status
+                       const getRouteForLead = (leadStatus: string, leadSource: string) => {
+                           if (leadStatus === 'Negotiations' || leadSource === 'Offer') {
+                               return `/offers?lead=${lead.id}`;
+                           } else if (leadStatus === 'Converted' || leadSource === 'Closed') {
+                               return `/closed?lead=${lead.id}`;
+                           } else {
+                               return `/outreach?lead=${lead.id}`;
+                           }
+                       };
+
+                       const route = getRouteForLead(lead.status, lead.source || '');
+                       
+                       return (
+                      <tr key={lead.id} className="group transition-all" onClick={() => navigate(route)}>
+                        <td className="px-6 py-4 bg-white/60 backdrop-blur-sm border-y border-l border-slate-100 rounded-l-2xl group-hover:bg-white transition-all">
+                           <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600 font-bold text-sm">
+                                  {lead.business.name.substring(0, 1)}
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-slate-800 text-sm">{lead.business.name}</h3>
+                                <span className="text-[10px] text-slate-400">{lead.business.website}</span>
+                              </div>
+                           </div>
+                        </td>
+                        <td className="px-6 py-4 bg-white/60 backdrop-blur-sm border-y border-slate-100 transition-all">
+                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${getStatusBadge(lead.status)}`}>
+                             {lead.status}
+                           </span>
+                        </td>
+                        <td className="px-6 py-4 bg-white/60 backdrop-blur-sm border-y border-slate-100 transition-all">
+                           <span className="text-xs font-bold text-slate-700">${(lead.estimatedValue || 0).toLocaleString()}</span>
+                        </td>
+                        <td className="px-6 py-4 bg-white/60 backdrop-blur-sm border-y border-slate-100 transition-all text-xs font-medium text-slate-500">
+                           {lead.daysInStage || 0} days
+                        </td>
+                        <td className="px-6 py-4 bg-white/60 backdrop-blur-sm border-y border-slate-100 transition-all">
+                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${lead.outcome === 'Interested' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
+                              {lead.outcome || 'Pending'}
+                           </span>
+                        </td>
+                        <td className="px-6 py-4 bg-white/60 backdrop-blur-sm border-y border-r border-slate-100 rounded-r-2xl transition-all text-right">
+                           <button className="p-2 text-slate-300 hover:text-indigo-600">
+                              <ChevronRight className="w-5 h-5" />
+                          </button>
+                        </td>
+                      </tr>
+                       );
+                    })}
+                  </tbody>
+                </table>
+            </div>
+          </div>
+        )}
+
+        {!loading && activeTab === 'analytics' && (
+          <div className="h-full overflow-y-auto pr-2 scrollbar-hide pb-20 animate-fade-in space-y-8 pt-4">
+             
+             {/* 1. Outcome Summary Cards */}
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <GlassCard className="p-6 border-l-4 border-l-emerald-500 flex flex-col justify-between">
+                    <div>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Interested</h4>
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-4xl font-bold text-emerald-600 tracking-tighter">{interestedCount}</span>
+                            <span className="text-xs font-semibold text-slate-400">leads</span>
+                        </div>
+                    </div>
+                </GlassCard>
+
+                <GlassCard className="p-6 border-l-4 border-l-amber-500 flex flex-col justify-between">
+                    <div>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">No Reply</h4>
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-4xl font-bold text-amber-500 tracking-tighter">{noReplyCount}</span>
+                            <span className="text-xs font-semibold text-slate-400">leads</span>
+                        </div>
+                    </div>
+                </GlassCard>
+
+                <GlassCard className="p-6 border-l-4 border-l-slate-400 flex flex-col justify-between">
+                    <div>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Bad Fit</h4>
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-4xl font-bold text-slate-500 tracking-tighter">{badFitCount}</span>
+                            <span className="text-xs font-semibold text-slate-400">leads</span>
+                        </div>
+                    </div>
+                </GlassCard>
+             </div>
+
+             {/* 2. Advanced Performance Charts */}
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Visual Pipeline Funnel */}
+                <GlassCard className="lg:col-span-2 p-8 h-[450px] flex flex-col">
+                    <div className="flex justify-between items-center mb-8">
+                        <div>
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                <Zap className="w-4 h-4 text-indigo-500" /> Interaction Quality Funnel
+                            </h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Lifecycle Conversion Analysis</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                                <span className="text-[10px] font-bold text-slate-500">Volume</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="flex-1">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={funnelData} margin={{ left: 20, right: 20 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
+                                <Tooltip cursor={{fill: 'rgba(99, 102, 241, 0.05)'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} />
+                                <Bar dataKey="value" radius={[8, 8, 0, 0]} barSize={60}>
+                                    {funnelData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </GlassCard>
+
+                {/* Performance KPIs Sidebar */}
+                <div className="space-y-6">
+                    <GlassCard className="p-6 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white border-none shadow-indigo-200 shadow-xl">
+                        <div className="flex items-center gap-3 mb-4 opacity-80 uppercase text-[10px] font-bold tracking-[0.2em]">
+                            <TrendingUp className="w-4 h-4" /> Growth Velocity
+                        </div>
+                        <div className="text-4xl font-bold tracking-tighter mb-1">+22%</div>
+                        <p className="text-indigo-100 text-xs font-medium">Weekly Outreach Expansion</p>
+                        <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
+                            <div className="text-center">
+                                <div className="text-sm font-bold">4.2d</div>
+                                <div className="text-[9px] opacity-70 uppercase">First Reply</div>
+                            </div>
+                            <div className="w-px h-6 bg-white/10"></div>
+                            <div className="text-center">
+                                <div className="text-sm font-bold">12%</div>
+                                <div className="text-[9px] opacity-70 uppercase">CTR</div>
+                            </div>
+                        </div>
+                    </GlassCard>
+
+                    <GlassCard className="p-6">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Pipeline Health Summary</h4>
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm font-medium text-slate-600">Fresh Momentum</span>
+                                <span className="text-sm font-bold text-emerald-500">Strong</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-slate-100 rounded-full">
+                                <div className="h-full bg-emerald-500 rounded-full" style={{ width: '75%' }}></div>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm font-medium text-slate-600">Reply Consistency</span>
+                                <span className="text-sm font-bold text-amber-500">Fair</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-slate-100 rounded-full">
+                                <div className="h-full bg-amber-500 rounded-full" style={{ width: '45%' }}></div>
+                            </div>
+                        </div>
+                    </GlassCard>
+                </div>
+
+                {/* Activity Volume vs. Success Index */}
+                <GlassCard className="lg:col-span-3 p-8 h-[380px] flex flex-col">
+                    <div className="flex justify-between items-center mb-8">
+                        <div>
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                <Activity className="w-4 h-4 text-rose-500" /> Outreach Intensity & Yield
+                            </h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Correlation of Daily Touches to Converted Interest</p>
+                        </div>
+                    </div>
+                    <div className="flex-1">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart data={intensityData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 700}} />
+                                <YAxis axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10}} />
+                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none' }} />
+                                <Area type="monotone" dataKey="touches" name="Total Touches" stroke="#6366f1" fill="#6366f1" fillOpacity={0.05} strokeWidth={2} />
+                                <Line type="stepAfter" dataKey="conversions" name="Interest Signal" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981' }} />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
+                </GlassCard>
+             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Add Lead Modal */}
+      {showAddLeadModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center">
+                <UserPlus className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Add New Lead</h3>
+                <p className="text-sm text-slate-500">Create a new lead to track</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Business Name *</label>
+                <input
+                  type="text"
+                  value={newLeadName}
+                  onChange={(e) => setNewLeadName(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Enter business name"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Website</label>
+                <input
+                  type="text"
+                  value={newLeadWebsite}
+                  onChange={(e) => setNewLeadWebsite(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Enter website URL"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={newLeadEmail}
+                  onChange={(e) => setNewLeadEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Enter email address"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={newLeadPhone}
+                  onChange={(e) => setNewLeadPhone(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Enter phone number"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                <textarea
+                  value={newLeadDescription}
+                  onChange={(e) => setNewLeadDescription(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+                  rows={3}
+                  placeholder="Enter business description"
+                />
+              </div>
+              
+              {/* Social Media Fields */}
+              <div className="border-t border-slate-200 pt-4 mt-4">
+                <label className="block text-sm font-medium text-slate-700 mb-3">Social Media</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Twitter</label>
+                    <input
+                      type="text"
+                      value={newLeadTwitter}
+                      onChange={(e) => setNewLeadTwitter(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="@username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Instagram</label>
+                    <input
+                      type="text"
+                      value={newLeadInstagram}
+                      onChange={(e) => setNewLeadInstagram(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="@username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">TikTok</label>
+                    <input
+                      type="text"
+                      value={newLeadTiktok}
+                      onChange={(e) => setNewLeadTiktok(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="@username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">LinkedIn</label>
+                    <input
+                      type="text"
+                      value={newLeadLinkedin}
+                      onChange={(e) => setNewLeadLinkedin(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="Profile URL or username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Telegram</label>
+                    <input
+                      type="text"
+                      value={newLeadTelegram}
+                      onChange={(e) => setNewLeadTelegram(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="@username"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-6 justify-end">
+              <button
+                onClick={() => {
+                  setShowAddLeadModal(false);
+                  setNewLeadName('');
+                  setNewLeadWebsite('');
+                  setNewLeadEmail('');
+                  setNewLeadPhone('');
+                  setNewLeadDescription('');
+                  setNewLeadTwitter('');
+                  setNewLeadInstagram('');
+                  setNewLeadTiktok('');
+                  setNewLeadLinkedin('');
+                  setNewLeadTelegram('');
+                }}
+                className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddLead}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-lg shadow-indigo-500/20 flex items-center gap-2"
+              >
+                <PlusCircle className="w-4 h-4" />
+                Add Lead
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+         <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+           <div className="flex items-center gap-3 mb-4">
+             <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center">
+               <AlertTriangle className="w-6 h-6 text-rose-600" />
+             </div>
+             <div>
+               <h3 className="text-lg font-bold text-slate-800">Delete Lead</h3>
+               <p className="text-sm text-slate-500">This action cannot be undone</p>
+             </div>
+           </div>
+           
+           <p className="text-slate-600 mb-6">
+             Are you sure you want to delete this lead? This will permanently remove lead and all associated data.
+           </p>
+           
+           <div className="flex gap-3 justify-end">
+             <button
+               onClick={() => setDeleteConfirmId(null)}
+               disabled={isDeleting}
+               className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50"
+             >
+               Cancel
+             </button>
+             <button
+               onClick={() => handleDeleteLead(deleteConfirmId)}
+               disabled={isDeleting}
+               className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+             >
+               {isDeleting ? (
+                 <>
+                   <Loader2 className="w-4 h-4 animate-spin" />
+                   Deleting...
+                 </>
+               ) : (
+                 <>
+                   <Trash2 className="w-4 h-4" />
+                   Delete Lead
+                 </>
+               )}
+             </button>
+           </div>
+         </div>
+       </div>
+     )}
+    </div>
+  );
+};
+
+export default Leads;
