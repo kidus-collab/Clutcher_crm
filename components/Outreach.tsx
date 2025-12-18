@@ -22,10 +22,11 @@ import {
     Youtube,
     Video,
     AlertTriangle,
-    Database
+    Database,
+    Loader2
 } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
-import { getLeads, updateLeadStatus, logActivity, createFollowUpTask, createOffer, supabase, logOutreachTracking, addClosedLead } from '../lib/database/supabase';
+import { useSearchParams, Link } from 'react-router-dom';
+import { getLeads, updateLeadStatus, logActivity, createFollowUpTask, createOffer, supabase, logOutreachTracking, addClosedLead, getOutreachTrackingLeads, deleteOutreachTracking } from '../lib/database/supabase';
 import { Lead, SocialProfile } from '../types';
 
 const Outreach: React.FC = () => {
@@ -65,6 +66,8 @@ const Outreach: React.FC = () => {
   const [offerValue, setOfferValue] = useState('');
   const [offerStage, setOfferStage] = useState<'Proposal' | 'Qualified' | 'Contacted' | 'Won' | 'Lost'>('Proposal');
   const [offerProbability, setOfferProbability] = useState(50);
+  const [offerRating, setOfferRating] = useState(3);
+  const [offerOutcome, setOfferOutcome] = useState('Interested');
 
   // Outreach Tracking Modal State
   const [showOutreachModal, setShowOutreachModal] = useState(false);
@@ -86,6 +89,43 @@ const Outreach: React.FC = () => {
   // Website outreach state
   const [websiteAction, setWebsiteAction] = useState<'contact' | 'inquiry'>('contact');
   const [websiteMessage, setWebsiteMessage] = useState('');
+
+  // Check scraper server status
+  const checkScraperStatus = async () => {
+    setScraperStatus('checking');
+    try {
+      const response = await fetch('/api/health');
+      if (response.ok) {
+        setScraperStatus('active');
+      } else {
+        setScraperStatus('inactive');
+      }
+    } catch (error) {
+      console.error('Failed to check scraper status:', error);
+      setScraperStatus('inactive');
+    }
+  };
+
+  // Check database connection status
+  const checkDbStatus = async () => {
+    setDbStatus('checking');
+    try {
+      if (!supabase) {
+        setDbStatus('disconnected');
+        return;
+      }
+      const { data, error } = await supabase.from('leads').select('id').limit(1);
+      if (error) {
+        console.error('Database connection error:', error);
+        setDbStatus('disconnected');
+      } else {
+        setDbStatus('connected');
+      }
+    } catch (error) {
+      console.error('Failed to check database status:', error);
+      setDbStatus('disconnected');
+    }
+  };
 
   useEffect(() => {
     fetchOutreachLeads();
@@ -110,46 +150,24 @@ const Outreach: React.FC = () => {
 
   const fetchOutreachLeads = async () => {
     setLoading(true);
-    const allLeads = await getLeads();
-    console.log(`Outreach.tsx: Fetched ${allLeads.length} total leads`);
     
-    // Filter for 'Outreach' status OR 'No Reply' status OR if a specific lead ID is passed (to ensure it shows up)
-    // Exclude leads that are in 'Negotiations', 'Closed', or 'Converted' status
-    const outreachLeads = allLeads.filter(l => 
-      (l.status === 'Outreach' || 
-       l.status === 'No Reply' || 
-       l.id === initialLeadId) && 
-      l.status !== 'Negotiations' &&
-      l.status !== 'Closed' &&
-      l.status !== 'Converted'
-    );
-    console.log(`Outreach.tsx: Found ${outreachLeads.length} specific outreach leads (status='Outreach'/'No Reply' or id=${initialLeadId})`);
+    // Fetch leads from outreach_tracking table
+    const trackingLeads = await getOutreachTrackingLeads();
+    console.log(`Outreach.tsx: Fetched ${trackingLeads.length} leads from outreach_tracking table`);
     
-    // If no specific outreach leads found, show all leads except closed/converted/negotiations
-    let finalLeads = outreachLeads;
-    if (outreachLeads.length === 0 && allLeads.length > 0) {
-      console.log('No specific outreach leads found, showing all leads that are not in Negotiations, Closed, or Converted');
-      finalLeads = allLeads.filter(l => 
-        l.status !== 'Negotiations' &&
-        l.status !== 'Closed' &&
-        l.status !== 'Converted'
-      );
-      console.log(`Outreach.tsx: Using ${finalLeads.length} alternative leads`);
-    }
-    
-    setLeads(finalLeads);
+    setLeads(trackingLeads);
 
-    if (initialLeadId && finalLeads.find(l => l.id === initialLeadId)) {
+    if (initialLeadId && trackingLeads.find((l: any) => l.id === initialLeadId)) {
         setSelectedLeadId(initialLeadId);
         // Track initial lead selection
-        const lead = finalLeads.find(l => l.id === initialLeadId);
+        const lead = trackingLeads.find((l: any) => l.id === initialLeadId);
         if (lead) {
             trackBusinessInteraction(lead.id, lead.business.name, 'lead_selected');
         }
-    } else if (finalLeads.length > 0) {
-        setSelectedLeadId(finalLeads[0].id);
+    } else if (trackingLeads.length > 0) {
+        setSelectedLeadId(trackingLeads[0].id);
         // Track default lead selection
-        trackBusinessInteraction(finalLeads[0].id, finalLeads[0].business.name, 'lead_selected');
+        trackBusinessInteraction(trackingLeads[0].id, trackingLeads[0].business.name, 'lead_selected');
     }
     setLoading(false);
   };
@@ -367,54 +385,72 @@ const Outreach: React.FC = () => {
   };
 
   if (loading) {
-      return <div className="p-10 text-center text-slate-400">Loading leads...</div>;
+      return (
+          <div className="flex h-screen items-center justify-center bg-slate-50">
+             <div className="flex flex-col items-center gap-3">
+               <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+               <p className="text-slate-500 font-medium">Loading outreach profile...</p>
+             </div>
+          </div>
+      );
+  }
+
+  // Show empty state if no leads found at all
+  if (leads.length === 0) {
+      return (
+          <div className="flex flex-col h-screen items-center justify-center p-6 bg-slate-50">
+              <div className="text-center max-w-md">
+                  <div className="w-20 h-20 bg-white rounded-3xl shadow-sm border border-slate-200 flex items-center justify-center mx-auto mb-6 transform -rotate-3">
+                    <Database className="w-10 h-10 text-slate-400" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-800 mb-3">No Outreach Data</h2>
+                  <p className="text-slate-500 mb-8 leading-relaxed">
+                    Access your outreach history here. Start by connecting with leads in the Leads Central page.
+                  </p>
+                  
+                  <Link to="/leads" className="inline-flex items-center gap-2 px-8 py-3.5 bg-indigo-600 text-white rounded-xl font-bold font-medium shadow-xl shadow-indigo-500/20 hover:bg-indigo-700 hover:scale-[1.02] transition-all">
+                      <ArrowRight className="w-5 h-5" />
+                      Go to Leads Central
+                  </Link>
+              </div>
+          </div>
+      );
   }
 
   if (!activeLead) {
       return (
-          <div className="flex h-screen items-center justify-center p-10">
+          <div className="flex h-screen items-center justify-center p-10 bg-slate-50">
               <div className="text-center text-slate-400">
                   <CheckSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No active outreach leads selected.</p>
-                  <p className="text-sm mt-2">Go to "Find Customers" or "Leads" to add more.</p>
+                  <p className="text-lg font-medium text-slate-600">No lead selected</p>
+                  <p className="text-sm mt-2">Select a lead from the sidebar to view details.</p>
               </div>
           </div>
       );
   }
 
   return (
-    <div className="p-6 lg:p-8 min-h-screen flex flex-col max-w-[1600px] mx-auto pb-24">
-      <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Outreach Center</h1>
-          <div className="flex items-center gap-3">
-              {/* Server Status Card */}
-              <div className={`px-3 py-2 rounded-xl border shadow-sm flex items-center gap-2 ${
-                dbStatus === 'connected'
-                  ? 'bg-green-50 border-green-200 text-green-700'
-                  : 'bg-red-50 border-red-200 text-red-700'
-              }`}>
-                  <Database className="w-4 h-4" />
-                  <span className="text-xs font-medium">
-                    DB: {dbStatus === 'connected' ? 'Connected' : 'Disconnected'}
-                  </span>
-              </div>
-              <div className="text-sm text-slate-500 hidden md:block">
-                  Drafting for: <span className="font-semibold text-indigo-600">{activeLead.business.name}</span>
+    <div className="p-4 sm:p-6 lg:p-8 min-h-screen flex flex-col max-w-[1600px] mx-auto pb-20 sm:pb-24">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-3">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">Outreach Center</h1>
+          <div className="flex items-center gap-2 sm:gap-3">
+              <div className="text-xs sm:text-sm text-slate-500 hidden md:block">
+                  <span>Drafting for: </span><span className="font-semibold text-indigo-600">{activeLead.business.name}</span>
               </div>
           </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
+      <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 flex-1 min-h-0">
          
          {/* Left: Lead Selector with Card Stack */}
-         <div className={`w-full lg:w-1/4 flex flex-col gap-4 overflow-y-auto pr-2 pb-10 max-h-[calc(100vh-200px)] transition-all duration-300 ${hideSidebar ? 'lg:opacity-0 lg:pointer-events-none lg:w-0' : ''}`}>
+         <div className={`w-full lg:w-1/4 flex flex-col gap-3 sm:gap-4 overflow-y-auto pr-1.5 sm:pr-2 pb-8 sm:pb-10 max-h-[calc(100vh-200px)] transition-all duration-300 ${hideSidebar ? 'lg:opacity-0 lg:pointer-events-none lg:w-0' : ''}`}>
             {/* Outreach to Business Button */}
-            <div className="mb-4">
+            <div className="mb-3 sm:mb-4">
                 <button
                     onClick={() => setShowOutreachModal(true)}
-                    className="w-full p-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2"
+                    className="w-full p-2.5 sm:p-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-1.5 sm:gap-2 text-sm sm:text-base"
                 >
-                    <Send className="w-4 h-4" /> Outreach to Business
+                    <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span>Outreach to Business</span>
                 </button>
             </div>
 
@@ -452,14 +488,14 @@ const Outreach: React.FC = () => {
                         // Track lead selection/click
                         trackBusinessInteraction(lead.id, lead.business.name, 'lead_clicked');
                     }}
-                    className={`p-4 cursor-pointer transition-all border-l-4 group relative ${selectedLeadId === lead.id ? 'bg-white border-l-indigo-500 shadow-md' : 'bg-white/40 border-l-transparent hover:bg-white/60'}`}
+                    className={`p-3 sm:p-4 cursor-pointer transition-all border-l-4 group relative ${selectedLeadId === lead.id ? 'bg-white border-l-indigo-500 shadow-md' : 'bg-white/40 border-l-transparent hover:bg-white/60'}`}
                 >
                     <div className="flex justify-start items-start">
-                        <h3 className="font-bold text-slate-800 text-sm">{lead.business.name}</h3>
+                        <h3 className="font-bold text-slate-800 text-xs sm:text-sm">{lead.business.name}</h3>
                     </div>
-                    <div className="flex justify-between items-center mt-2">
-                         <span className="text-xs text-slate-500 truncate max-w-[150px]">{lead.business.website}</span>
-                         {lead.status === 'New' && <div className="w-2 h-2 rounded-full bg-emerald-500"></div>}
+                    <div className="flex justify-between items-center mt-1.5 sm:mt-2">
+                         <span className="text-[10px] sm:text-xs text-slate-500 truncate max-w-[120px] sm:max-w-[150px]">{lead.business.website}</span>
+                         {lead.status === 'New' && <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500"></div>}
                     </div>
                 </GlassCard>
             ))}
@@ -478,7 +514,7 @@ const Outreach: React.FC = () => {
              )}
             
             {/* 1. Social Direct Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 {/* Website Button */}
                 {activeLead.business.website && (
                     <a 
@@ -534,151 +570,151 @@ const Outreach: React.FC = () => {
             </div>
 
             {/* 2. Email Composer */}
-            {activeLead.business.email ? (
-                <GlassCard className="flex-col overflow-hidden p-0 relative min-h-[400px] flex">
-                    <div className="px-6 py-4 border-b border-slate-200 bg-white/50 backdrop-blur-md flex justify-between items-center">
-                        <div className="flex items-center gap-2 text-indigo-600 font-semibold">
-                            <Mail className="w-5 h-5" />
-                            Compose Email
-                        </div>
-                        <div className="text-xs text-slate-400">
-                            To: <span className="text-slate-600 font-medium">{activeLead.business.email}</span>
-                        </div>
-                    </div>
+           {activeLead.business.email ? (
+               <GlassCard className="flex-col overflow-hidden p-0 relative min-h-[350px] sm:min-h-[400px] flex">
+                   <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 bg-white/50 backdrop-blur-md flex justify-between items-center">
+                       <div className="flex items-center gap-1.5 sm:gap-2 text-indigo-600 font-semibold">
+                           <Mail className="w-4 h-4 sm:w-5 sm:h-5" />
+                           <span className="">Compose Email</span>
+                       </div>
+                       <div className="text-[10px] sm:text-xs text-slate-400">
+                           To: <span className="text-slate-600 font-medium">{activeLead.business.email}</span>
+                       </div>
+                   </div>
 
-                    <div className="flex-1 p-6 bg-white/30 flex flex-col gap-4">
-                        <input 
-                            type="text"
-                            value={subject}
-                            onChange={(e) => setSubject(e.target.value)}
-                            placeholder="Subject"
-                            className="w-full bg-white/50 border border-slate-200 rounded-lg px-4 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-400"
-                        />
-                        
-                        <textarea 
-                            value={emailBody}
-                            onChange={(e) => setEmailBody(e.target.value)}
-                            className="flex-1 w-full bg-white/50 border border-slate-200 rounded-lg p-4 resize-none outline-none text-slate-700 placeholder:text-slate-400 font-sans leading-relaxed text-sm focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
-                            placeholder="Write your email here..."
-                        />
-                    </div>
+                   <div className="flex-1 p-4 sm:p-6 bg-white/30 flex flex-col gap-3 sm:gap-4">
+                       <input
+                           type="text"
+                           value={subject}
+                           onChange={(e) => setSubject(e.target.value)}
+                           placeholder="Subject"
+                           className="w-full bg-white/50 border border-slate-200 rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-400"
+                       />
+                       
+                       <textarea
+                           value={emailBody}
+                           onChange={(e) => setEmailBody(e.target.value)}
+                           className="flex-1 w-full bg-white/50 border border-slate-200 rounded-lg p-3 sm:p-4 resize-none outline-none text-slate-700 placeholder:text-slate-400 font-sans leading-relaxed text-sm focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
+                           placeholder="Write your email here..."
+                       />
+                   </div>
 
-                    <div className="p-4 bg-white/80 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
-                        <div className="flex flex-col gap-1.5 w-full md:w-auto">
-                            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide ml-1">Create Follow-up Task</div>
-                            <div className="flex items-center gap-2 bg-slate-100/80 p-1.5 rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all">
-                                <Calendar className="w-4 h-4 text-indigo-500 ml-2" />
-                                <input 
-                                    type="date" 
-                                    className="bg-transparent text-xs font-bold text-slate-700 outline-none p-1 w-24 cursor-pointer"
-                                    value={followUpDate}
-                                    onChange={(e) => setFollowUpDate(e.target.value)}
-                                />
-                                <div className="w-px h-4 bg-slate-300 mx-1"></div>
-                                <input 
-                                    type="text"
-                                    placeholder="Add note..."
-                                    className="bg-transparent text-xs text-slate-700 outline-none p-1 w-48 md:w-64 placeholder:text-slate-400"
-                                    value={followUpNote}
-                                    onChange={(e) => setFollowUpNote(e.target.value)}
-                                />
-                                <button 
-                                    onClick={handleSchedule}
-                                    disabled={!followUpDate}
-                                    className="ml-1 flex items-center gap-1.5 text-xs bg-white text-indigo-600 px-3 py-1.5 rounded-lg font-bold shadow-sm border border-slate-200 hover:bg-indigo-50 hover:border-indigo-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                                >
-                                   <PlusCircle className="w-3.5 h-3.5" />
-                                   Schedule
-                                </button>
-                            </div>
-                        </div>
+                   <div className="p-3 sm:p-4 bg-white/80 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-3 sm:gap-4">
+                       <div className="flex flex-col gap-1.5 w-full md:w-auto">
+                           <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wide ml-1">Create Follow-up Task</div>
+                           <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-100/80 p-1.5 rounded-lg sm:rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all">
+                               <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500 ml-2" />
+                               <input
+                                   type="date"
+                                   className="bg-transparent text-[10px] sm:text-xs font-bold text-slate-700 outline-none p-1 w-20 sm:w-24 cursor-pointer"
+                                   value={followUpDate}
+                                   onChange={(e) => setFollowUpDate(e.target.value)}
+                               />
+                               <div className="w-px h-3.5 sm:h-4 bg-slate-300 mx-1"></div>
+                               <input
+                                   type="text"
+                                   placeholder="Add note..."
+                                   className="bg-transparent text-[10px] sm:text-xs text-slate-700 outline-none p-1 w-32 sm:w-48 md:w-64 placeholder:text-slate-400"
+                                   value={followUpNote}
+                                   onChange={(e) => setFollowUpNote(e.target.value)}
+                               />
+                               <button
+                                   onClick={handleSchedule}
+                                   disabled={!followUpDate}
+                                   className="ml-1 flex items-center gap-1.5 text-[10px] sm:text-xs bg-white text-indigo-600 px-2.5 sm:px-3 py-1.5 rounded-lg sm:rounded-lg font-bold shadow-sm border border-slate-200 hover:bg-indigo-50 hover:border-indigo-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                               >
+                                  <PlusCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                                  <span className="">Schedule</span>
+                               </button>
+                           </div>
+                       </div>
 
-                        <div className="flex gap-3 w-full md:w-auto mt-4 md:mt-0">
-                            <button className="flex-1 md:flex-none px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-medium hover:bg-slate-50 transition-all text-sm">
-                                Save Draft
-                            </button>
-                            <button 
-                                onClick={handleSendEmail}
-                                className="flex-1 md:flex-none px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 text-sm"
-                            >
-                                <Send className="w-4 h-4" /> Send Email
-                            </button>
-                        </div>
-                    </div>
-                </GlassCard>
-            ) : (
+                       <div className="flex gap-2 sm:gap-3 w-full md:w-auto mt-3 md:mt-0">
+                           <button className="flex-1 md:flex-none px-3 sm:px-4 py-2 sm:py-2.5 border border-slate-200 text-slate-600 rounded-lg sm:rounded-xl font-medium hover:bg-slate-50 transition-all text-sm">
+                               <span className="">Save Draft</span>
+                           </button>
+                           <button
+                               onClick={handleSendEmail}
+                               className="flex-1 md:flex-none px-4 sm:px-6 py-2 sm:py-2.5 bg-indigo-600 text-white rounded-lg sm:rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-1.5 sm:gap-2 text-sm"
+                           >
+                               <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="">Send Email</span>
+                           </button>
+                       </div>
+                   </div>
+               </GlassCard>
+           ) : (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center text-slate-500 text-sm italic">
                     No email address available for this business. Use social links or phone to contact.
                 </div>
             )}
 
              {/* 3. Outcome Actions */}
-             <GlassCard className="p-6 border-t-4 border-t-indigo-500">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+             <GlassCard className="p-4 sm:p-6 border-t-4 border-t-indigo-500">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 sm:gap-6">
                     {/* Rating Section */}
-                    <div className="w-full md:w-auto md:border-r md:border-slate-200 md:pr-6">
-                        <h3 className="text-sm font-bold text-slate-800 mb-2">Log Interaction Quality <span className="text-rose-500">*</span></h3>
-                        <div className="flex items-center gap-2">
+                    <div className="w-full md:w-auto md:border-r md:border-slate-200 md:pr-4 sm:md:pr-6">
+                        <h3 className="text-xs sm:text-sm font-bold text-slate-800 mb-1.5 sm:mb-2">Log Interaction Quality <span className="text-rose-500">*</span></h3>
+                        <div className="flex items-center gap-1.5 sm:gap-2">
                            <div className="flex">
                              {[1, 2, 3, 4, 5].map((star) => (
                                <button
-                                 key={star}
-                                 onClick={() => updateLeadStatus(activeLead.id, activeLead.status, undefined, star).then(() => {
-                                     setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, rating: star } : l));
-                                 })}
-                                 className="p-1 hover:scale-110 transition-transform focus:outline-none"
+                                   key={star}
+                                   onClick={() => updateLeadStatus(activeLead.id, activeLead.status, undefined, star).then(() => {
+                                       setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, rating: star } : l));
+                                   })}
+                                   className="p-0.5 sm:p-1 hover:scale-110 transition-transform focus:outline-none"
                                >
-                                 <Star 
-                                   className={`w-6 h-6 ${activeLead.rating && activeLead.rating >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-200 fill-slate-100'}`} 
-                                 />
+                                   <Star
+                                     className={`w-5 h-5 sm:w-6 sm:h-6 ${activeLead.rating && activeLead.rating >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-200 fill-slate-100'}`}
+                                   />
                                </button>
                              ))}
                            </div>
-                           <span className="text-xs font-bold text-slate-400 ml-1">
+                           <span className="text-[10px] sm:text-xs font-bold text-slate-400 ml-1">
                              {activeLead.rating ? `${activeLead.rating}/5 Stars` : 'Rate'}
                            </span>
                         </div>
                     </div>
 
                      <div className="flex-1 w-full">
-                         <h3 className="text-sm font-bold text-slate-800 mb-2">Set Outcome Status <span className="text-rose-500">*</span></h3>
-                         <div className="flex flex-col gap-3">
-                             <div className="flex flex-wrap gap-2">
-                                  <button 
+                         <h3 className="text-xs sm:text-sm font-bold text-slate-800 mb-1.5 sm:mb-2">Set Outcome Status <span className="text-rose-500">*</span></h3>
+                         <div className="flex flex-col gap-2.5 sm:gap-3">
+                             <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                                  <button
                                      onClick={() => {
                                          updateLeadStatus(activeLead.id, activeLead.status, 'Bad Fit').then(() => {
                                              setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, outcome: 'Bad Fit' } : l));
                                          });
                                      }}
-                                     className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-center gap-1.5 
-                                         ${activeLead.outcome === 'Bad Fit' 
-                                            ? 'bg-rose-100 border-rose-300 text-rose-700 ring-1 ring-rose-300' 
+                                     className={`flex-1 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold border transition-all flex items-center justify-center gap-1.5
+                                         ${activeLead.outcome === 'Bad Fit'
+                                            ? 'bg-rose-100 border-rose-300 text-rose-700 ring-1 ring-rose-300'
                                             : 'bg-white border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-500'}
                                      `}
                                   >
-                                     <Ban className="w-3.5 h-3.5" /> Bad Fit
+                                     <Ban className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span>Bad Fit</span>
                                   </button>
-                                  <button 
+                                  <button
                                      onClick={() => {
                                          updateLeadStatus(activeLead.id, activeLead.status, 'Good Fit' as any).then(() => {
                                              setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, outcome: 'Good Fit' } : l));
                                          });
                                      }}
-                                     className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-center gap-1.5
-                                         ${activeLead.outcome === 'Good Fit' 
-                                            ? 'bg-indigo-100 border-indigo-300 text-indigo-700 ring-1 ring-indigo-300' 
+                                     className={`flex-1 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold border transition-all flex items-center justify-center gap-1.5
+                                         ${activeLead.outcome === 'Good Fit'
+                                            ? 'bg-indigo-100 border-indigo-300 text-indigo-700 ring-1 ring-indigo-300'
                                             : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600'}
                                      `}
                                   >
-                                     <ThumbsUp className="w-3.5 h-3.5" /> Good Fit
+                                     <ThumbsUp className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span>Good Fit</span>
                                   </button>
                              </div>
                              
                              <button
                                  onClick={() => handleOutcome('Converted')}
-                                 className="w-full px-3 py-3 rounded-xl text-sm font-bold border transition-all flex items-center justify-center gap-2 bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 active:scale-[0.98]"
+                                 className="w-full px-2.5 sm:px-3 py-2.5 sm:py-3 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold border transition-all flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 active:scale-[0.98]"
                              >
-                                 <ArrowRight className="w-4 h-4" /> Convert to Deal
+                                 <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span>Convert to deal</span>
                              </button>
                          </div>
                      </div>
@@ -689,8 +725,8 @@ const Outreach: React.FC = () => {
 
       {/* Offer Modal */}
       {showOfferModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
+              <div className="bg-white rounded-lg sm:rounded-xl shadow-2xl max-w-md w-full p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-4">
                       <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
                           <PlusCircle className="w-6 h-6 text-purple-600" />
@@ -750,6 +786,37 @@ const Outreach: React.FC = () => {
                               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                           />
                       </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Quality Rating (1-5)</label>
+                              <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg px-3 py-2">
+                                 <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+                                 <input
+                                      type="number"
+                                      value={offerRating}
+                                      onChange={(e) => setOfferRating(Math.min(5, Math.max(1, parseInt(e.target.value) || 1)))}
+                                      min="1"
+                                      max="5"
+                                      className="w-full focus:outline-none"
+                                  />
+                              </div>
+                          </div>
+                          
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Outcome Status</label>
+                              <select
+                                  value={offerOutcome}
+                                  onChange={(e) => setOfferOutcome(e.target.value)}
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              >
+                                  <option value="Interested">Interested</option>
+                                  <option value="Good Fit">Good Fit</option>
+                                  <option value="Bad Fit">Bad Fit</option>
+                                  <option value="Not Interested">Not Interested</option>
+                              </select>
+                          </div>
+                      </div>
                   </div>
                   
                   <div className="flex gap-3 mt-6 justify-end">
@@ -763,7 +830,7 @@ const Outreach: React.FC = () => {
                           onClick={async () => {
                               if (!activeLead || !offerTitle || !offerValue) return;
                               
-                              const success = await createOffer(
+                              const result = await createOffer(
                                   activeLead.id,
                                   offerTitle,
                                   parseInt(offerValue),
@@ -771,13 +838,30 @@ const Outreach: React.FC = () => {
                                   offerProbability
                               );
                               
-                              if (success) {
-                                  // Update lead status to reflect offer creation
-                                  await updateLeadStatus(activeLead.id, 'Negotiations');
+                              if (result.duplicate) {
+                                  alert('An offer already exists for this lead!');
+                                  return;
+                              }
+                              
+                              if (result.success) {
+                                  // Update lead status with Rating & Outcome, and move to Negotiations
+                                  await updateLeadStatus(activeLead.id, 'Negotiations', offerOutcome as any, offerRating);
+                                  
+                                  // DELETE from outreach_tracking as requested
+                                  const deleteSuccess = await deleteOutreachTracking(activeLead.id);
+                                  if (!deleteSuccess) {
+                                      alert("Warning: Offer created, but failed to remove lead from Outreach Tracking list. This is likely an RLS (Policy) permission issue. Please check the console for errors.");
+                                  } else {
+                                      // Refresh list to remove the converted lead from view
+                                      await fetchOutreachLeads();
+                                  }
                                   
                                   // Signal to OfferDeal component to refresh
                                   window.dispatchEvent(new StorageEvent('storage', { key: 'offersUpdated' }));
                                   
+                                  // Signal to Leads component to refresh
+                                  window.dispatchEvent(new StorageEvent('storage', { key: 'leadsUpdated' }));
+
                                   // Navigate to offers page
                                   window.location.href = '/offers';
                               } else {
@@ -825,8 +909,8 @@ const Outreach: React.FC = () => {
 
       {/* Outreach Tracking Modal */}
       {showOutreachModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
+              <div className="bg-white rounded-lg sm:rounded-xl shadow-2xl max-w-md w-full p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-4">
                       <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center">
                           <Send className="w-6 h-6 text-indigo-600" />
@@ -1005,7 +1089,7 @@ const Outreach: React.FC = () => {
                           onClick={async () => {
                               if (!activeLead || !outreachType || !outreachNotes) return;
                                                             // Add entry to outreach_tracking table
-                               const trackingSuccess = await logOutreachTracking(
+                               const trackingResult = await logOutreachTracking(
                                  activeLead.id,
                                  activeLead.business.name,
                                  'outreach_button_clicked',
@@ -1017,7 +1101,12 @@ const Outreach: React.FC = () => {
                                  'outreach_page'
                                );
                                
-                               if (!trackingSuccess) {
+                               if (trackingResult.duplicate) {
+                                 alert('This lead is already in the outreach tracking list!');
+                                 return;
+                               }
+                               
+                               if (!trackingResult.success) {
                                  setNotificationMsg('Failed to track outreach. Please try again.');
                                  setShowNotification(true);
                                  setTimeout(() => setShowNotification(false), 5000);
@@ -1072,42 +1161,7 @@ const Outreach: React.FC = () => {
     </div>
   );
 
-  // Check scraper server status
-  const checkScraperStatus = async () => {
-    setScraperStatus('checking');
-    try {
-      const response = await fetch('/api/health');
-      if (response.ok) {
-        setScraperStatus('active');
-      } else {
-        setScraperStatus('inactive');
-      }
-    } catch (error) {
-      console.error('Failed to check scraper status:', error);
-      setScraperStatus('inactive');
-    }
-  };
 
-  // Check database connection status
-  const checkDbStatus = async () => {
-    setDbStatus('checking');
-    try {
-      if (!supabase) {
-        setDbStatus('disconnected');
-        return;
-      }
-      const { data, error } = await supabase.from('leads').select('id').limit(1);
-      if (error) {
-        console.error('Database connection error:', error);
-        setDbStatus('disconnected');
-      } else {
-        setDbStatus('connected');
-      }
-    } catch (error) {
-      console.error('Failed to check database status:', error);
-      setDbStatus('disconnected');
-    }
-  };
 };
 
 export default Outreach;

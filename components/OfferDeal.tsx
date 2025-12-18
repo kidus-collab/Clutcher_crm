@@ -67,10 +67,10 @@ const OfferDeal: React.FC = () => {
 
   const fetchAvailableLeads = async () => {
     const leads = await getLeads();
-    // Filter leads that don't already have offers
+    // Filter leads that have 'Negotiations' status and don't already have offers
     const leadsWithoutOffers = leads.filter(lead =>
       !offerDeals.some(offer => offer.leadId === lead.id) &&
-      lead.status !== 'Converted' && lead.status !== 'Closed'
+      lead.status === 'Negotiations'
     );
     setAvailableLeads(leadsWithoutOffers);
   };
@@ -125,9 +125,8 @@ const OfferDeal: React.FC = () => {
     try {
       const offers = await getOffers();
       
-      const activeOffers = offers.filter(offer =>
-        offer.stage === 'Proposal' || offer.stage === 'Qualified'
-      );
+      // Show all offers regardless of stage
+      const activeOffers = offers;
       
       const transformedOffers = activeOffers.map(offer => {
         const leadId = offer.leadId;

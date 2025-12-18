@@ -88,6 +88,8 @@ npm run server
 ## 🌐 Hosting
 
 - **Frontend**: Deploy to **Vercel** or **Netlify**. Connect your repository and it will auto-detect the Vite build.
+  - > [!IMPORTANT]
+  - > You **must** add your `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to the Vercel Project Settings -> Environment Variables before deploying, otherwise the app will fail to fetch data.
 - **Server**: Deploy the `server/` folder to **Render**, **Railway**, or **Heroku**.
 - **Database**: Already hosted via **Supabase**.
 

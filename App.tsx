@@ -19,7 +19,7 @@ const App: React.FC = () => {
           <Route path="find" element={<FindCustomers />} />
           <Route path="pipeline" element={<Pipeline />} />
           <Route path="leads" element={<ErrorBoundary><Leads /></ErrorBoundary>} />
-          <Route path="outreach" element={<Outreach />} />
+          <Route path="outreach" element={<ErrorBoundary><Outreach /></ErrorBoundary>} />
           <Route path="offers" element={<OfferDeal />} />
           <Route path="closed" element={<ClosedLeads />} />
           <Route path="*" element={<Navigate to="/" replace />} />

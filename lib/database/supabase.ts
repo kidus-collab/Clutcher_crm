@@ -651,8 +651,19 @@ export async function createOffer(
   value?: number,
   stage: 'Proposal' | 'Qualified' | 'Contacted' | 'Won' | 'Lost' = 'Proposal',
   probability: number = 0
-): Promise<boolean> {
-  if (!supabase) return false;
+): Promise<{ success: boolean; duplicate?: boolean }> {
+  if (!supabase) return { success: false };
+  
+  // Check for existing offer
+  const { data: existing } = await supabase
+    .from('offers')
+    .select('id')
+    .eq('lead_id', leadId)
+    .single();
+    
+  if (existing) {
+    return { success: false, duplicate: true };
+  }
   
   const { error } = await supabase
     .from('offers')
@@ -666,9 +677,9 @@ export async function createOffer(
     
   if (error) {
     console.error('Error creating offer:', error, error.message, error.details);
-    return false;
+    return { success: false };
   }
-  return true;
+  return { success: true };
 }
 
 /**
@@ -894,7 +905,7 @@ export async function getOutreachTrackingLeads(): Promise<any[]> {
   
   // Get unique lead IDs to avoid duplicates
   const uniqueLeadIds = new Set();
-  const uniqueTrackingData = trackingData.filter(track => {
+  const uniqueTrackingData = (trackingData || []).filter(track => {
     const leadId = track.leads?.id || track.id;
     if (uniqueLeadIds.has(leadId)) {
       return false; // Skip duplicate
@@ -1115,8 +1126,19 @@ export async function logOutreachTracking(
   actionType: string,
   actionDetails: any,
   sourcePage: string = 'outreach_page'
-): Promise<boolean> {
-  if (!supabase) return false;
+): Promise<{ success: boolean; duplicate?: boolean }> {
+  if (!supabase) return { success: false };
+  
+  // Check for existing entry to prevent redundancy
+  const { data: existing } = await supabase
+    .from('outreach_tracking')
+    .select('id')
+    .eq('lead_id', leadId)
+    .single();
+    
+  if (existing) {
+    return { success: false, duplicate: true };
+  }
   
   const { error } = await supabase
     .from('outreach_tracking')
@@ -1131,10 +1153,10 @@ export async function logOutreachTracking(
     
   if (error) {
     console.error('Error logging outreach tracking:', error);
-    return false;
+    return { success: false };
   }
   
-  return true;
+  return { success: true };
 }
 
 /**
@@ -1154,4 +1176,23 @@ export async function getOutreachSentCount(): Promise<number> {
   }
   
   return count || 0;
+}
+
+/**
+ * Delete lead from outreach_tracking table
+ */
+export async function deleteOutreachTracking(leadId: string): Promise<boolean> {
+  if (!supabase) return false;
+  
+  const { error } = await supabase
+    .from('outreach_tracking')
+    .delete()
+    .eq('lead_id', leadId);
+    
+  if (error) {
+    console.error('Error deleting from outreach tracking:', error);
+    return false;
+  }
+  
+  return true;
 }

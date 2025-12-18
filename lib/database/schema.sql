@@ -47,7 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_social_profiles_business ON social_profiles(busin
 CREATE TABLE IF NOT EXISTS leads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-  status TEXT DEFAULT 'New' CHECK (status IN ('Hot', 'Cold', 'New', 'Warm', 'Converted', 'Lost', 'Closed')),
+  status TEXT DEFAULT 'New' CHECK (status IN ('New', 'No Reply', 'Negotiations', 'Converted')),
   source TEXT DEFAULT 'Scraper',
   last_contact TIMESTAMPTZ,
   rating INTEGER DEFAULT 0 CHECK (rating >= 0 AND rating <= 5),
@@ -268,4 +268,4 @@ create policy "Allow public access to closed_leads" on closed_leads for all usin
 -- Update leads status constraint to include new statuses
 ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_status_check;
 ALTER TABLE leads ADD CONSTRAINT leads_status_check
-CHECK (status IN ('New', 'Hot', 'Warm', 'Cold', 'Converted', 'Lost', 'Closed', 'Outreach', 'No Reply', 'Negotiations'));
+CHECK (status IN ('New', 'No Reply', 'Negotiations', 'Converted'));

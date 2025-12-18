@@ -20,12 +20,13 @@ import {
   ArrowRight,
   Clock
 } from 'lucide-react';
-import { getOffers, getActivities, logActivity } from '../lib/database/supabase';
+import { getDeals, getOffers, getActivities, logActivity } from '../lib/database/supabase';
 
 const Pipeline: React.FC = () => {
   const [viewMode, setViewMode] = useState<'board' | 'timeline'>('board');
   const [selectedDeal, setSelectedDeal] = useState<any | null>(null);
   const [deals, setDeals] = useState<any[]>([]);
+  const [offers, setOffers] = useState<any[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,9 +52,11 @@ const Pipeline: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
+        const dealsData = await getDeals();
         const offersData = await getOffers();
         const activitiesData = await getActivities(20);
-        setDeals(offersData);
+        setDeals(dealsData);
+        setOffers(offersData);
         setActivities(activitiesData);
       } catch (error) {
         console.error('Error fetching pipeline data:', error);
@@ -76,35 +79,35 @@ const Pipeline: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-theme(spacing.20))] flex flex-col p-4 lg:p-6 overflow-hidden relative">
+    <div className="h-[calc(100vh-theme(spacing.20))] flex flex-col p-3 sm:p-4 lg:p-6 overflow-hidden relative">
       {/* Header & Controls */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 shrink-0 z-10 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-3 sm:mb-4 shrink-0 z-10 gap-3 sm:gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Pipeline</h1>
-          <p className="text-slate-500 text-xs font-medium mt-0.5">
-            <span className="text-indigo-600">{deals.length} active deals</span> with total value of <span className="text-slate-700 font-semibold">${deals.reduce((acc, curr) => acc + (curr.value || 0), 0).toLocaleString()}</span>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">Pipeline</h1>
+          <p className="text-slate-500 text-[10px] sm:text-xs font-medium mt-0.5">
+            <span className="text-indigo-600">{offers.length} active deals</span> with total value of <span className="text-slate-700 font-semibold">${offers.reduce((acc, curr) => acc + (curr.value || 0), 0).toLocaleString()}</span>
           </p>
         </div>
         
-        <div className="flex items-center space-x-3 flex-shrink-0">
-          <div className="bg-white/40 p-1 rounded-xl flex space-x-1 border border-white/50 shadow-sm backdrop-blur-md">
+        <div className="flex items-center gap-2 sm:space-x-3 flex-shrink-0">
+          <div className="bg-white/40 p-1 rounded-lg sm:rounded-xl flex gap-1 sm:space-x-1 border border-white/50 shadow-sm backdrop-blur-md">
             <button
               onClick={() => setViewMode('board')}
-              className={`p-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${viewMode === 'board' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/30'}`}
+              className={`p-1 sm:p-1.5 rounded-lg transition-all flex items-center gap-1 sm:gap-1.5 whitespace-nowrap ${viewMode === 'board' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/30'}`}
             >
-              <KanbanSquare className="w-3.5 h-3.5" strokeWidth={2.5} />
-              <span className="text-[10px] font-bold uppercase tracking-wider">Board</span>
+              <KanbanSquare className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 lg:w-4 lg:h-4" strokeWidth={2.5} />
+              <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider">Board</span>
             </button>
             <button
               onClick={() => setViewMode('timeline')}
-              className={`p-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${viewMode === 'timeline' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/30'}`}
+              className={`p-1 sm:p-1.5 rounded-lg transition-all flex items-center gap-1 sm:gap-1.5 whitespace-nowrap ${viewMode === 'timeline' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/30'}`}
             >
-              <ListTree className="w-3.5 h-3.5" strokeWidth={2.5} />
-              <span className="text-[10px] font-bold uppercase tracking-wider">Timeline</span>
+              <ListTree className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 lg:w-4 lg:h-4" strokeWidth={2.5} />
+              <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider">Timeline</span>
             </button>
           </div>
-          <button className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg shadow-slate-900/10 transition-all flex items-center border border-slate-700 whitespace-nowrap">
-            <Plus className="w-4 h-4 mr-1.5" strokeWidth={2.5} /> New Deal
+          <button className="bg-slate-900 hover:bg-slate-800 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold shadow-lg shadow-slate-900/10 transition-all flex items-center border border-slate-700 whitespace-nowrap">
+            <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 mr-1 sm:mr-1.5" strokeWidth={2.5} /> <span>New Deal</span>
           </button>
         </div>
       </div>
@@ -117,48 +120,48 @@ const Pipeline: React.FC = () => {
           </div>
         ) : viewMode === 'board' ? (
           /* KANBAN BOARD */
-          <div className="flex space-x-4 h-full min-w-max px-2">
-            {PIPELINE_STAGES.map((stage) => {
-              const stageDeals = deals.filter(d => d.stage === stage);
-              const stageValue = stageDeals.reduce((acc, val) => acc + (val.value || 0), 0);
-              
-              return (
-                <div key={stage} className="w-[280px] flex flex-col h-full group">
-                  <div className="flex justify-between items-center mb-3 px-1 sticky top-0 bg-transparent">
-                    <div>
-                      <span className="text-[11px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
-                        <div className={`w-1.5 h-1.5 rounded-full ${stageDeals.length > 0 ? 'bg-indigo-500' : 'bg-slate-300'}`}></div>
-                        {formatStageName(stage)}
-                      </span>
-                      <div className="text-[9px] text-slate-400 font-bold ml-3.5 mt-0.5">
-                        ${stageValue.toLocaleString()}
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-500 bg-white/40 border border-white/50 px-2 py-0.5 rounded-full">{stageDeals.length}</span>
-                  </div>
-                  
-                  <div className="flex-1 overflow-y-auto pr-1.5 space-y-2.5 pb-20 scrollbar-hide">
+          <div className="flex gap-2 sm:gap-4 h-full min-w-max px-1 sm:px-2">
+           {PIPELINE_STAGES.map((stage) => {
+             const stageDeals = deals.filter(d => d.stage === stage);
+             const stageValue = stageDeals.reduce((acc, val) => acc + (val.value || 0), 0);
+             
+             return (
+               <div key={stage} className="w-[240px] sm:w-[280px] flex flex-col h-full group">
+                 <div className="flex justify-between items-center mb-2 sm:mb-3 px-1 sticky top-0 bg-transparent">
+                   <div>
+                     <span className="text-[10px] sm:text-[11px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-1.5 sm:gap-2">
+                       <div className={`w-1.5 h-1.5 rounded-full ${stageDeals.length > 0 ? 'bg-indigo-500' : 'bg-slate-300'}`}></div>
+                       {formatStageName(stage)}
+                     </span>
+                     <div className="text-[8px] sm:text-[9px] text-slate-400 font-bold ml-2.5 sm:ml-3.5 mt-0.5">
+                       ${stageValue.toLocaleString()}
+                     </div>
+                   </div>
+                   <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 bg-white/40 border border-white/50 px-1.5 sm:px-2 py-0.5 rounded-full">{stageDeals.length}</span>
+                 </div>
+                 
+                 <div className="flex-1 overflow-y-auto pr-1 sm:pr-1.5 space-y-2 sm:space-y-2.5 pb-16 sm:pb-20 scrollbar-hide">
                     {stageDeals.map((deal) => (
-                      <GlassCard 
-                        key={deal.id} 
-                        className="p-4 group/card relative border-l-4 border-l-transparent hover:border-l-indigo-500 transition-all" 
+                      <GlassCard
+                        key={deal.id}
+                        className="p-3 sm:p-4 group/card relative border-l-4 border-l-transparent hover:border-l-indigo-500 transition-all"
                         hoverEffect
                         onClick={() => setSelectedDeal(deal)}
                       >
-                         <div className="flex justify-between items-start mb-3">
-                            <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-wider">{deal.company}</span>
-                            <MoreVertical className="w-4 h-4 text-slate-300 opacity-0 group-hover/card:opacity-100 transition-opacity cursor-pointer hover:text-indigo-600" />
+                         <div className="flex justify-between items-start mb-2 sm:mb-3">
+                            <span className="text-[9px] sm:text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 sm:px-2 py-0.5 rounded uppercase tracking-wider">{deal.company}</span>
+                            <MoreVertical className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5 text-slate-300 opacity-0 group-hover/card:opacity-100 transition-opacity cursor-pointer hover:text-indigo-600" />
                          </div>
-                         <h4 className="font-bold text-slate-800 text-sm mb-0.5 leading-snug truncate">{deal.title}</h4>
-                         <div className="text-base font-bold text-slate-700 mb-3 tracking-tight flex items-baseline gap-0.5">
-                            <span className="text-[10px] text-slate-400 font-normal">$</span>{deal.value.toLocaleString()}
+                         <h4 className="font-bold text-slate-800 text-xs sm:text-sm mb-0.5 leading-snug truncate">{deal.title}</h4>
+                         <div className="text-sm sm:text-base font-bold text-slate-700 mb-2 sm:mb-3 tracking-tight flex items-baseline gap-0.5">
+                            <span className="text-[9px] sm:text-[10px] text-slate-400 font-normal">$</span>{deal.value.toLocaleString()}
                          </div>
-                         <div className="flex justify-between items-center border-t border-slate-100/50 pt-2.5 mt-auto">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-[10px] text-slate-500 font-bold">{deal.probability}% Prob.</span>
+                         <div className="flex justify-between items-center border-t border-slate-100/50 pt-2 sm:pt-2.5 mt-auto">
+                            <div className="flex items-center gap-1.5 sm:space-x-2">
+                              <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold">{deal.probability}% Prob.</span>
                             </div>
-                            <span className="text-[9px] text-slate-400 font-bold bg-slate-100/50 px-1.5 py-0.5 rounded flex items-center gap-1">
-                               <Clock className="w-2.5 h-2.5" /> {deal.lastContact}
+                            <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold bg-slate-100/50 px-1 sm:px-1.5 py-0.5 rounded flex items-center gap-1">
+                               <Clock className="w-1.5 h-1.5 sm:w-2 sm:h-2 md:w-2.5 md:h-2.5 lg:w-3 lg:h-3" /> {deal.lastContact}
                             </span>
                          </div>
                       </GlassCard>
@@ -166,7 +169,7 @@ const Pipeline: React.FC = () => {
                     {stageDeals.length === 0 && (
                       <div className="h-40 border-2 border-dashed border-slate-200/50 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-2 bg-slate-50/30">
                         <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
-                          <Plus className="w-5 h-5 text-slate-300" />
+                          <Plus className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 lg:w-6 lg:h-6 text-slate-300" />
                         </div>
                         <span className="text-xs font-medium">No deals here</span>
                       </div>
@@ -178,11 +181,11 @@ const Pipeline: React.FC = () => {
           </div>
         ) : (
           /* TIMELINE VIEW (JOURNEY) */
-          <div className="h-full overflow-y-auto px-4 lg:px-10 relative max-w-5xl mx-auto pb-20 scrollbar-hide">
-            {/* Central Line */}
-            <div className="absolute left-8 lg:left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-indigo-200 to-transparent transform lg:-translate-x-1/2"></div>
-            
-            <div className="space-y-16 py-10">
+          <div className="h-full overflow-y-auto px-3 sm:px-4 lg:px-10 relative max-w-5xl mx-auto pb-16 sm:pb-20 scrollbar-hide">
+           {/* Central Line */}
+           <div className="absolute left-6 sm:left-8 lg:left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-indigo-200 to-transparent transform lg:-translate-x-1/2"></div>
+           
+           <div className="space-y-12 sm:space-y-16 py-6 sm:py-10">
               {PIPELINE_STAGES.map((stage, idx) => {
                  const stageDeals = deals.filter(d => d.stage === stage);
                  const totalValue = stageDeals.reduce((sum, d) => sum + (d.value || 0), 0);
@@ -191,52 +194,52 @@ const Pipeline: React.FC = () => {
                    <div key={stage} className={`flex items-start relative ${idx % 2 === 0 ? 'lg:flex-row' : 'lg:flex-row-reverse'} flex-row`}>
                       
                       {/* Timeline Node */}
-                      <div className="absolute left-8 lg:left-1/2 top-6 w-5 h-5 bg-white rounded-full border-[3px] border-indigo-500 shadow-[0_0_0_4px_rgba(99,102,241,0.15)] transform -translate-x-1/2 z-10 flex items-center justify-center">
-                        <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></div>
+                      <div className="absolute left-6 sm:left-8 lg:left-1/2 top-6 w-4 h-4 sm:w-5 sm:h-5 bg-white rounded-full border-[2px] sm:border-[3px] border-indigo-500 shadow-[0_0_0_4px_rgba(99,102,241,0.15)] transform -translate-x-1/2 z-10 flex items-center justify-center">
+                        <div className="w-0.5 h-0.5 sm:w-1 sm:h-1 md:w-1.5 md:h-1.5 lg:w-2 lg:h-2 bg-indigo-500 rounded-full"></div>
                       </div>
                       
                       {/* Empty side for spacing on desktop */}
                       <div className="hidden lg:block w-1/2"></div>
                       
                       {/* Content Card */}
-                      <div className={`w-full pl-20 lg:pl-0 lg:w-1/2 ${idx % 2 === 0 ? 'lg:pr-16' : 'lg:pl-16'}`}>
+                      <div className={`w-full pl-16 sm:pl-20 lg:pl-0 lg:w-1/2 ${idx % 2 === 0 ? 'lg:pr-16' : 'lg:pl-16'}`}>
                         <GlassCard className="p-0 overflow-hidden group hover:shadow-xl transition-shadow">
-                           <div className="p-6 border-b border-slate-100/50 bg-gradient-to-b from-white/80 to-white/40">
-                             <div className="flex items-center justify-between mb-2">
-                               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                 {formatStageName(stage)}
-                                 <span className="px-2 py-0.5 rounded-full bg-slate-100 text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Stage {idx + 1}</span>
-                               </h3>
-                               <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">{stageDeals.length} Deals</span>
-                             </div>
-                             <div className="flex items-center gap-4 text-xs text-slate-500">
-                               <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> {totalValue.toLocaleString()} Value</span>
-                               <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Avg. 12 days</span>
-                             </div>
+                           <div className="p-4 sm:p-6 border-b border-slate-100/50 bg-gradient-to-b from-white/80 to-white/40">
+                              <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+                                  {formatStageName(stage)}
+                                  <span className="px-1.5 sm:px-2 py-0.5 rounded-full bg-slate-100 text-[9px] sm:text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Stage {idx + 1}</span>
+                                </h3>
+                                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full">{stageDeals.length} Deals</span>
+                              </div>
+                              <div className="flex items-center gap-2 sm:gap-4 text-xs text-slate-500">
+                                <span className="flex items-center gap-1"><DollarSign className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> {totalValue.toLocaleString()} Value</span>
+                                <span className="flex items-center gap-1"><Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Avg. 12 days</span>
+                              </div>
                            </div>
                            
-                           <div className="p-2 bg-white/30">
+                           <div className="p-1.5 sm:p-2 bg-white/30">
                              {stageDeals.length > 0 ? (
                                <div className="space-y-1">
                                  {stageDeals.slice(0, 3).map(deal => (
-                                   <div 
-                                      key={deal.id} 
+                                   <div
+                                      key={deal.id}
                                       onClick={() => setSelectedDeal(deal)}
-                                      className="flex items-center justify-between p-3 rounded-xl hover:bg-white transition-colors cursor-pointer group/item border border-transparent hover:border-slate-100 hover:shadow-sm"
+                                      className="flex items-center justify-between p-2 sm:p-3 rounded-lg sm:rounded-xl hover:bg-white transition-colors cursor-pointer group/item border border-transparent hover:border-slate-100 hover:shadow-sm"
                                     >
-                                      <div className="flex items-center space-x-3">
-                                        <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center font-bold text-indigo-600">
-                                            {deal.company.substring(0,1)}
-                                        </div>
-                                        <div>
-                                          <p className="text-sm text-slate-700 font-semibold">{deal.title}</p>
-                                          <p className="text-xs text-slate-400">{deal.company}</p>
-                                        </div>
-                                      </div>
-                                      <div className="text-right">
-                                        <span className="block text-sm font-medium text-slate-700">${deal.value.toLocaleString()}</span>
-                                        <span className="text-[10px] text-slate-400">{deal.lastContact}</span>
-                                      </div>
+                                     <div className="flex items-center gap-1.5 sm:space-x-3">
+                                       <div className="w-4 h-4 sm:w-6 sm:h-6 md:w-8 md:h-8 lg:w-10 lg:h-10 rounded-lg bg-indigo-50 flex items-center justify-center font-bold text-indigo-600">
+                                           {deal.company.substring(0,1)}
+                                       </div>
+                                       <div>
+                                         <p className="text-xs sm:text-sm text-slate-700 font-semibold truncate">{deal.title}</p>
+                                         <p className="text-[9px] sm:text-xs text-slate-400">{deal.company}</p>
+                                       </div>
+                                     </div>
+                                     <div className="text-right">
+                                       <span className="block text-xs sm:text-sm font-medium text-slate-700">${deal.value.toLocaleString()}</span>
+                                       <span className="text-[9px] sm:text-[10px] text-slate-400">{deal.lastContact}</span>
+                                     </div>
                                    </div>
                                  ))}
                                </div>
@@ -284,7 +287,7 @@ const Pipeline: React.FC = () => {
                    onClick={() => setSelectedDeal(null)} 
                    className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
                  >
-                   <X className="w-6 h-6" />
+                   <X className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 lg:w-8 lg:h-8" />
                  </button>
               </div>
 
@@ -315,8 +318,8 @@ const Pipeline: React.FC = () => {
                                 'bg-white border-slate-200 text-slate-300'}
                             `}
                           >
-                            {isCompleted && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
-                            {isCurrent && <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>}
+                            {isCompleted && <Check className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5" strokeWidth={3} />}
+                            {isCurrent && <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 md:w-2.5 md:h-2.5 lg:w-3 lg:h-3 bg-indigo-500 rounded-full animate-pulse"></div>}
                           </div>
                           <span 
                             className={`
@@ -368,7 +371,7 @@ const Pipeline: React.FC = () => {
                          }}
                          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 transition-colors"
                        >
-                         <Mail className="w-3.5 h-3.5" /> Email
+                         <Mail className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5" /> Email
                        </button>
                        <button
                          onClick={async () => {
@@ -381,14 +384,14 @@ const Pipeline: React.FC = () => {
                          }}
                          className="flex-1 py-2 flex items-center justify-center gap-2 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 transition-colors"
                        >
-                         <Phone className="w-3.5 h-3.5" /> Call
+                         <Phone className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5" /> Call
                        </button>
                      </div>
                    </div>
 
                    <div>
                      <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-                       <Calendar className="w-4 h-4 text-indigo-500" /> Next Steps
+                       <Calendar className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 lg:w-6 lg:h-6 text-indigo-500" /> Next Steps
                      </h3>
                      <div className="space-y-3">
                         <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100/50">
@@ -403,10 +406,10 @@ const Pipeline: React.FC = () => {
                  </div>
 
                  <div>
-                   <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-                     <Clock className="w-4 h-4 text-indigo-500" /> Activity Log
+                   <h3 className="text-xs sm:text-sm font-bold text-slate-800 mb-3 sm:mb-4 flex items-center gap-2">
+                     <Clock className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5 text-indigo-500" /> Activity Log
                    </h3>
-                   <div className="relative border-l border-slate-200 ml-2 space-y-6 pl-6 pb-2">
+                 <div className="relative border-l border-slate-200 ml-1.5 sm:ml-2 space-y-4 sm:space-y-6 pl-4 sm:pl-6 pb-2">
                       {activities.length > 0 ? (
                         activities
                           .filter(activity =>
@@ -443,12 +446,12 @@ const Pipeline: React.FC = () => {
                             
                             return (
                               <div key={activity.id} className="relative">
-                                 <div className={`absolute -left-[33px] top-0 w-8 h-8 rounded-full ${bg} flex items-center justify-center border-4 border-white`}>
-                                   <Icon className={`w-3.5 h-3.5 ${color}`} />
-                                 </div>
-                                 <p className="text-sm font-medium text-slate-800">{activity.description}</p>
-                                 <p className="text-xs text-slate-400 mt-0.5">{timeAgo}</p>
-                              </div>
+                               <div className={`absolute -left-[28px] sm:-left-[33px] top-0 w-6 h-6 sm:w-8 sm:h-8 rounded-full ${bg} flex items-center justify-center border-3 sm:border-4 border-white`}>
+                                <Icon className={`w-2 h-2 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 lg:w-4 lg:h-4 ${color}`} />
+                               </div>
+                               <p className="text-xs sm:text-sm font-medium text-slate-800">{activity.description}</p>
+                               <p className="text-[9px] sm:text-xs text-slate-400 mt-0.5">{timeAgo}</p>
+                            </div>
                             );
                           })
                       ) : (

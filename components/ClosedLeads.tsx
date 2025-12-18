@@ -66,10 +66,10 @@ const ClosedLeads: React.FC = () => {
     setLoading(false);
   };
 
-  // Filter leads for closed/converted status
-  const closedLeads = leads.filter(lead => lead.status === 'Closed' || lead.status === 'Converted');
+  // Filter leads for closed/converted outcome
+  const closedLeads = leads; // All leads from closed_leads table are already closed
   const filteredLeads = closedLeads.filter(lead => {
-    const matchesSearch = 
+    const matchesSearch =
       lead.business.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.business.website.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (lead.business.email && lead.business.email.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -77,12 +77,12 @@ const ClosedLeads: React.FC = () => {
     return matchesSearch;
   });
   
-  const convertedLeads = filteredLeads.filter(l => (l.status === 'Converted' || l.outcome === 'Converted') && l.caseStudy);
+  const convertedLeads = filteredLeads.filter(l => l.outcome === 'Converted' && l.caseStudy);
 
   // Analytical Data Calculations
-  const wonCount = filteredLeads.filter(l => l.status === 'Converted' || l.outcome === 'Converted').length;
+  const wonCount = filteredLeads.filter(l => l.outcome === 'Converted').length;
   const lostCount = filteredLeads.filter(l => l.outcome === 'Bad Fit').length;
-  const otherCount = filteredLeads.length - wonCount - lostCount;
+  const otherCount = filteredLeads.filter(l => l.outcome !== 'Converted' && l.outcome !== 'Bad Fit').length;
 
   const outcomeData = [
     { name: 'Deals Won', value: wonCount, fill: '#10b981' },
@@ -333,14 +333,14 @@ const ClosedLeads: React.FC = () => {
               className="space-y-4"
             >
                 {filteredLeads.map((lead) => (
-                    <GlassCard key={lead.id} className="p-5 group hover:bg-white/70 transition-all border-l-4 border-l-emerald-500 opacity-90">
+                    <GlassCard key={lead.id} className="p-5 group hover:bg-white/70 transition-all border-l-4 border-l-emerald-500 opacity-75">
                         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                             <div className="flex items-center w-full md:w-1/3">
                                 <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-lg mr-4 shrink-0 shadow-inner">
                                     {lead.business.name.substring(0, 1)}
                                 </div>
                                 <div>
-                                    <h3 className="font-bold text-slate-700">{lead.business.name}</h3>
+                                    <h3 className="font-bold text-slate-700 italic opacity-60 line-through">{lead.business.name}</h3>
                                     <span className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                                         Archived {lead.lastContact}
                                     </span>
@@ -447,7 +447,7 @@ const ClosedLeads: React.FC = () => {
                                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 700}} />
                                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10}} />
-                                  <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
+                                  <Tooltip formatter={(v: any) => `$${(v as number).toLocaleString()}`} />
                                   <Area type="monotone" dataKey="won" name="Won Value" stroke="#10b981" fill="#10b981" fillOpacity={0.1} strokeWidth={3} />
                                   <Area type="monotone" dataKey="lost" name="Lost Value" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.05} strokeWidth={2} />
                               </AreaChart>
