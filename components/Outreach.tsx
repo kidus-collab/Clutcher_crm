@@ -21,10 +21,11 @@ import {
     Phone,
     Youtube,
     Video,
-    AlertTriangle
+    AlertTriangle,
+    Database
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { getLeads, updateLeadStatus, logActivity, createFollowUpTask, createOffer, supabase } from '../lib/database/supabase';
+import { getLeads, updateLeadStatus, logActivity, createFollowUpTask, createOffer, supabase, logOutreachTracking, addClosedLead } from '../lib/database/supabase';
 import { Lead, SocialProfile } from '../types';
 
 const Outreach: React.FC = () => {
@@ -45,6 +46,10 @@ const Outreach: React.FC = () => {
   
   // Sidebar visibility state
   const [hideSidebar, setHideSidebar] = useState(false);
+  
+  // Server status state
+  const [scraperStatus, setScraperStatus] = useState<'active' | 'inactive' | 'checking'>('checking');
+  const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   
   // Outcome State
   const [showNotification, setShowNotification] = useState(false);
@@ -84,105 +89,11 @@ const Outreach: React.FC = () => {
 
   useEffect(() => {
     fetchOutreachLeads();
+    checkScraperStatus();
+    checkDbStatus();
   }, []);
 
-  // Separate useEffect for route tracking that runs when activeLead changes
-  useEffect(() => {
-    if (!activeLead) {
-      console.log('DEBUG: No activeLead available for route tracking');
-      return;
-    }
 
-    console.log('DEBUG: Active lead available:', activeLead.business.name, 'ID:', activeLead.id);
-    
-    // Check current route and add entries if accessing /offers or /closed
-    const currentPath = window.location.pathname;
-    console.log('DEBUG: Current route:', currentPath);
-    
-    if (currentPath === '/offers') {
-      console.log('DEBUG: Attempting to add to offers table for /offers route');
-      // Add entry to offers table for /offers route
-      supabase
-        .from('offers')
-        .insert({
-          lead_id: activeLead.id,
-          title: `Deal with ${activeLead.business.name}`,
-          value: 0,
-          stage: 'Proposal',
-          probability: 10
-        })
-        .then(({ data, error }) => {
-          if (error) {
-            console.error('DEBUG: Failed to track /offers route access:', error);
-            console.error('DEBUG: Error details:', JSON.stringify(error, null, 2));
-          } else {
-            console.log('DEBUG: Successfully added to offers table:', data);
-          }
-        });
-    }
-    
-    if (currentPath === '/closed') {
-      console.log('DEBUG: Attempting to add to closed_leads table for /closed route');
-      // Calculate duration from when lead was added to when /closed route is accessed
-      const duration = activeLead.createdAt ?
-        Math.ceil((new Date().getTime() - new Date(activeLead.createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
-
-      console.log('DEBUG: Calculated duration:', duration, 'days');
-      console.log('DEBUG: Lead data for closed_leads:', {
-        lead_id: activeLead.id,
-        business_name: activeLead.business.name,
-        duration: duration,
-        rating: activeLead.rating || 0,
-        pipeline_value: activeLead.estimatedValue || 0,
-        outcome: activeLead.outcome || 'Closed'
-      });
-
-      // Add entry to closed_leads table for /closed route
-      supabase
-        .from('closed_leads')
-        .insert({
-          lead_id: activeLead.id,
-          business_name: activeLead.business.name,
-          duration: duration,
-          rating: activeLead.rating || 0,
-          pipeline_value: activeLead.estimatedValue || 0,
-          outcome: activeLead.outcome || 'Closed'
-        })
-        .then(({ data, error }) => {
-          if (error) {
-            console.error('DEBUG: Failed to add closed lead for /closed route access:', error);
-            console.error('DEBUG: Error details:', JSON.stringify(error, null, 2));
-          } else {
-            console.log(`DEBUG: Successfully added ${activeLead.business.name} to closed_leads with duration: ${duration} days`);
-            console.log('DEBUG: Inserted data:', data);
-          }
-        });
-
-      console.log('DEBUG: Attempting to add to outreach_tracking table for /closed route');
-      // Also add entry to outreach_tracking table for tracking purposes
-      supabase
-        .from('outreach_tracking')
-        .insert({
-          lead_id: activeLead.id,
-          business_name: activeLead.business.name,
-          action_type: 'route_accessed',
-          action_details: {
-            route: '/closed',
-            timestamp: new Date().toISOString(),
-            duration: duration
-          },
-          source_page: 'outreach_page'
-        })
-        .then(({ data, error }) => {
-          if (error) {
-            console.error('DEBUG: Failed to track /closed route access:', error);
-            console.error('DEBUG: Error details:', JSON.stringify(error, null, 2));
-          } else {
-            console.log('DEBUG: Successfully added to outreach_tracking:', data);
-          }
-        });
-    }
-  }, [activeLead]);
 
   // Track business interactions in Outreach page
   const trackBusinessInteraction = (leadId: string, leadName: string, action: string) => {
@@ -203,28 +114,42 @@ const Outreach: React.FC = () => {
     console.log(`Outreach.tsx: Fetched ${allLeads.length} total leads`);
     
     // Filter for 'Outreach' status OR 'No Reply' status OR if a specific lead ID is passed (to ensure it shows up)
-    // Exclude leads that are in 'Negotiations' status
-    const outreachLeads = allLeads.filter(l =>
-      (l.status === 'Outreach' ||
-       l.status === 'No Reply' ||
-       l.id === initialLeadId) &&
-      l.status !== 'Negotiations'
+    // Exclude leads that are in 'Negotiations', 'Closed', or 'Converted' status
+    const outreachLeads = allLeads.filter(l => 
+      (l.status === 'Outreach' || 
+       l.status === 'No Reply' || 
+       l.id === initialLeadId) && 
+      l.status !== 'Negotiations' &&
+      l.status !== 'Closed' &&
+      l.status !== 'Converted'
     );
-    console.log(`Outreach.tsx: Found ${outreachLeads.length} outreach leads (status='Outreach'/'No Reply' or id=${initialLeadId})`);
+    console.log(`Outreach.tsx: Found ${outreachLeads.length} specific outreach leads (status='Outreach'/'No Reply' or id=${initialLeadId})`);
     
-    setLeads(outreachLeads);
+    // If no specific outreach leads found, show all leads except closed/converted/negotiations
+    let finalLeads = outreachLeads;
+    if (outreachLeads.length === 0 && allLeads.length > 0) {
+      console.log('No specific outreach leads found, showing all leads that are not in Negotiations, Closed, or Converted');
+      finalLeads = allLeads.filter(l => 
+        l.status !== 'Negotiations' &&
+        l.status !== 'Closed' &&
+        l.status !== 'Converted'
+      );
+      console.log(`Outreach.tsx: Using ${finalLeads.length} alternative leads`);
+    }
+    
+    setLeads(finalLeads);
 
-    if (initialLeadId && outreachLeads.find(l => l.id === initialLeadId)) {
+    if (initialLeadId && finalLeads.find(l => l.id === initialLeadId)) {
         setSelectedLeadId(initialLeadId);
         // Track initial lead selection
-        const lead = outreachLeads.find(l => l.id === initialLeadId);
+        const lead = finalLeads.find(l => l.id === initialLeadId);
         if (lead) {
             trackBusinessInteraction(lead.id, lead.business.name, 'lead_selected');
         }
-    } else if (outreachLeads.length > 0) {
-        setSelectedLeadId(outreachLeads[0].id);
+    } else if (finalLeads.length > 0) {
+        setSelectedLeadId(finalLeads[0].id);
         // Track default lead selection
-        trackBusinessInteraction(outreachLeads[0].id, outreachLeads[0].business.name, 'lead_selected');
+        trackBusinessInteraction(finalLeads[0].id, finalLeads[0].business.name, 'lead_selected');
     }
     setLoading(false);
   };
@@ -321,7 +246,6 @@ const Outreach: React.FC = () => {
               return;
           }
           if (!activeLead.outcome || (activeLead.outcome !== 'Good Fit' && activeLead.outcome !== 'Bad Fit' && activeLead.outcome !== 'Interested')) {
-               // Allow 'Interested' as legacy, but 'Good Fit'/'Bad Fit' preferred
               setNotificationMsg('Please select an outcome (Good Fit / Bad Fit) first.');
               setShowNotification(true);
               setTimeout(() => setShowNotification(false), 3000);
@@ -329,89 +253,61 @@ const Outreach: React.FC = () => {
           }
       }
 
-      // Track outcome action in localStorage
-      const outreachActions = JSON.parse(localStorage.getItem('outreachActions') || '[]');
-      outreachActions.push({
-        leadId: activeLead.id,
-        leadName: activeLead.business.name,
-        action: 'status_changed',
-        newStatus: newStatus,
-        timestamp: new Date().toISOString(),
-        source: 'outreach_page'
-      });
-      localStorage.setItem('outreachActions', JSON.stringify(outreachActions));
+      // Track outcome action in database
+      await logOutreachTracking(
+        activeLead.id,
+        activeLead.business.name,
+        'status_changed',
+        { newStatus, timestamp: new Date().toISOString() },
+        'outreach_page'
+      );
       
-      let result;
       if (newStatus === 'Converted') {
           console.log('DEBUG: Converting lead - adding to offers and closed_leads tables');
           // Calculate duration from when lead was added to when it was closed
           const duration = activeLead.createdAt ?
             Math.ceil((new Date().getTime() - new Date(activeLead.createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
 
-          console.log('DEBUG: Lead conversion data:', {
-            leadId: activeLead.id,
-            businessName: activeLead.business.name,
-            duration: duration,
-            rating: activeLead.rating,
-            estimatedValue: activeLead.estimatedValue,
-            outcome: activeLead.outcome
-          });
-
           // Add entry to offers table
-          console.log('DEBUG: Attempting to add to offers table for converted lead');
-          const { data: offerData, error: offerError } = await supabase
-            .from('offers')
-            .insert({
-              lead_id: activeLead.id,
-              title: `Deal with ${activeLead.business.name}`,
-              value: 0,
-              stage: 'Proposal',
-              probability: 10
-            });
+          const offerSuccess = await createOffer(
+            activeLead.id,
+            `Deal with ${activeLead.business.name}`,
+            0,
+            'Proposal',
+            10
+          );
           
-          if (offerError) {
-            console.error('DEBUG: Failed to create offer:', offerError);
-            console.error('DEBUG: Offer error details:', JSON.stringify(offerError, null, 2));
+          if (!offerSuccess) {
             setNotificationMsg('Failed to create offer.');
             setShowNotification(true);
             return;
-          } else {
-            console.log('DEBUG: Successfully added to offers table:', offerData);
           }
 
-          // Add entry to closed_leads table with duration and pipeline value
-          console.log('DEBUG: Attempting to add to closed_leads table for converted lead');
-          const { data: closedData, error: closedError } = await supabase
-            .from('closed_leads')
-            .insert({
-              lead_id: activeLead.id,
-              business_name: activeLead.business.name,
-              duration: duration,
-              rating: activeLead.rating || 0,
-              pipeline_value: activeLead.estimatedValue || 0,
-              outcome: activeLead.outcome || 'Converted'
-            });
+          // Add entry to closed_leads table
+          const closedSuccess = await addClosedLead(
+            activeLead.id,
+            activeLead.business.name,
+            duration,
+            activeLead.rating || 0,
+            activeLead.estimatedValue || 0,
+            activeLead.outcome || 'Converted'
+          );
           
-          if (closedError) {
-            console.error('DEBUG: Failed to add closed lead:', closedError);
-            console.error('DEBUG: Closed lead error details:', JSON.stringify(closedError, null, 2));
+          if (!closedSuccess) {
             setNotificationMsg('Failed to add closed lead.');
             setShowNotification(true);
             return;
-          } else {
-            console.log('DEBUG: Successfully added to closed_leads table:', closedData);
           }
 
-          // Signal for OfferDeal component to update
+          // Signal for UI update
           window.dispatchEvent(new StorageEvent('storage', { key: 'offersUpdated' }));
       }
       
-      // User request: "if the convert to deal button is touched... Place the lead to Negotiation column"
+      // Update the lead status in main table
       const statusToUpdate = newStatus === 'Converted' ? 'Negotiations' : newStatus;
+      const result = await updateLeadStatus(activeLead.id, statusToUpdate as any);
       
-      result = await updateLeadStatus(activeLead.id, statusToUpdate as any);
-      
-      if (!result.success) { // Check for all failures including converted
+      if (!result.success) {
           setNotificationMsg(`Error: ${result.error}`);
           setShowNotification(true);
           setTimeout(() => setShowNotification(false), 5000);
@@ -426,13 +322,12 @@ const Outreach: React.FC = () => {
       setNotificationMsg(msg);
       setShowNotification(true);
       
-      // Remove from list only if NOT converted to Negotiations (since it should disappear from Outreach)
-      if (newStatus !== 'Converted') {
+      // Refresh list or remove
+      if (newStatus !== 'Converted' && newStatus !== 'Negotiations') {
         setLeads(prev => prev.filter(l => l.id !== activeLead.id));
         setSelectedLeadId(null);
       } else {
-        // For converted leads, refresh the list to show updated status
-        fetchOutreachLeads();
+        await fetchOutreachLeads();
       }
       
       setTimeout(() => setShowNotification(false), 3000);
@@ -491,8 +386,21 @@ const Outreach: React.FC = () => {
     <div className="p-6 lg:p-8 min-h-screen flex flex-col max-w-[1600px] mx-auto pb-24">
       <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Outreach Center</h1>
-          <div className="text-sm text-slate-500 hidden md:block">
-              Drafting for: <span className="font-semibold text-indigo-600">{activeLead.business.name}</span>
+          <div className="flex items-center gap-3">
+              {/* Server Status Card */}
+              <div className={`px-3 py-2 rounded-xl border shadow-sm flex items-center gap-2 ${
+                dbStatus === 'connected'
+                  ? 'bg-green-50 border-green-200 text-green-700'
+                  : 'bg-red-50 border-red-200 text-red-700'
+              }`}>
+                  <Database className="w-4 h-4" />
+                  <span className="text-xs font-medium">
+                    DB: {dbStatus === 'connected' ? 'Connected' : 'Disconnected'}
+                  </span>
+              </div>
+              <div className="text-sm text-slate-500 hidden md:block">
+                  Drafting for: <span className="font-semibold text-indigo-600">{activeLead.business.name}</span>
+              </div>
           </div>
       </div>
 
@@ -1096,39 +1004,25 @@ const Outreach: React.FC = () => {
                       <button
                           onClick={async () => {
                               if (!activeLead || !outreachType || !outreachNotes) return;
-                              
-                              // Add entry to outreach_tracking table
-                              try {
-                                const { error: trackingError } = await supabase
-                                  .from('outreach_tracking')
-                                  .insert({
-                                    lead_id: activeLead.id,
-                                    business_name: activeLead.business.name,
-                                    action_type: 'outreach_button_clicked',
-                                    action_details: {
-                                      outreachType: outreachType,
-                                      notes: outreachNotes,
-                                      followUpDate: outreachDate
-                                    },
-                                    source_page: 'outreach_page'
-                                  });
-                                
-                                if (trackingError) {
-                                  console.error('Failed to track outreach button click:', trackingError);
-                                  console.error('Tracking error details:', trackingError);
-                                  setNotificationMsg('Failed to track outreach. Please try again.');
-                                  setShowNotification(true);
-                                  setTimeout(() => setShowNotification(false), 5000);
-                                  return;
-                                }
-                                
-                                console.log('Successfully tracked outreach button click for:', activeLead.business.name);
-                              } catch (error) {
-                                console.error('Exception during outreach tracking:', error);
-                                setNotificationMsg('Failed to track outreach. Please try again.');
-                                setShowNotification(true);
-                                setTimeout(() => setShowNotification(false), 5000);
-                              }
+                                                            // Add entry to outreach_tracking table
+                               const trackingSuccess = await logOutreachTracking(
+                                 activeLead.id,
+                                 activeLead.business.name,
+                                 'outreach_button_clicked',
+                                 {
+                                   outreachType: outreachType,
+                                   notes: outreachNotes,
+                                   followUpDate: outreachDate
+                                 },
+                                 'outreach_page'
+                               );
+                               
+                               if (!trackingSuccess) {
+                                 setNotificationMsg('Failed to track outreach. Please try again.');
+                                 setShowNotification(true);
+                                 setTimeout(() => setShowNotification(false), 5000);
+                                 return;
+                               }
 
                               // Track outreach action in localStorage
                               const outreachActions = JSON.parse(localStorage.getItem('outreachActions') || '[]');
@@ -1177,6 +1071,43 @@ const Outreach: React.FC = () => {
       )}
     </div>
   );
+
+  // Check scraper server status
+  const checkScraperStatus = async () => {
+    setScraperStatus('checking');
+    try {
+      const response = await fetch('/api/health');
+      if (response.ok) {
+        setScraperStatus('active');
+      } else {
+        setScraperStatus('inactive');
+      }
+    } catch (error) {
+      console.error('Failed to check scraper status:', error);
+      setScraperStatus('inactive');
+    }
+  };
+
+  // Check database connection status
+  const checkDbStatus = async () => {
+    setDbStatus('checking');
+    try {
+      if (!supabase) {
+        setDbStatus('disconnected');
+        return;
+      }
+      const { data, error } = await supabase.from('leads').select('id').limit(1);
+      if (error) {
+        console.error('Database connection error:', error);
+        setDbStatus('disconnected');
+      } else {
+        setDbStatus('connected');
+      }
+    } catch (error) {
+      console.error('Failed to check database status:', error);
+      setDbStatus('disconnected');
+    }
+  };
 };
 
 export default Outreach;

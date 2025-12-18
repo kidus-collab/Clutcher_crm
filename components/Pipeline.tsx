@@ -1,14 +1,13 @@
 
-import React, { useState } from 'react';
-import { 
-  MOCK_DEALS, 
+import React, { useState, useEffect } from 'react';
+import {
   PIPELINE_STAGES
 } from '../constants';
-import { Deal } from '../types';
+import { Deal, Activity } from '../types';
 import GlassCard from './ui/GlassCard';
-import { 
-  KanbanSquare, 
-  ListTree, 
+import {
+  KanbanSquare,
+  ListTree,
   MoreVertical,
   Plus,
   X,
@@ -21,10 +20,50 @@ import {
   ArrowRight,
   Clock
 } from 'lucide-react';
+import { getOffers, getActivities, logActivity } from '../lib/database/supabase';
 
 const Pipeline: React.FC = () => {
   const [viewMode, setViewMode] = useState<'board' | 'timeline'>('board');
-  const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  const [selectedDeal, setSelectedDeal] = useState<any | null>(null);
+  const [deals, setDeals] = useState<any[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Generate random estimated close date within 1-4 weeks from now
+  const generateEstCloseDate = (createdAt?: string) => {
+    if (!createdAt) {
+      // If no creation date, generate random date within 1-4 weeks
+      const daysFromNow = Math.floor(Math.random() * 28) + 7; // 7-35 days
+      const estDate = new Date();
+      estDate.setDate(estDate.getDate() + daysFromNow);
+      return estDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    
+    // If creation date exists, estimate 2-4 weeks from creation
+    const created = new Date(createdAt);
+    const daysFromCreation = Math.floor(Math.random() * 14) + 14; // 14-28 days
+    const estDate = new Date(created);
+    estDate.setDate(estDate.getDate() + daysFromCreation);
+    return estDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const offersData = await getOffers();
+        const activitiesData = await getActivities(20);
+        setDeals(offersData);
+        setActivities(activitiesData);
+      } catch (error) {
+        console.error('Error fetching pipeline data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // Helper to format stage names for display
   const formatStageName = (stage: string) => {
@@ -37,68 +76,72 @@ const Pipeline: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-theme(spacing.20))] flex flex-col p-6 lg:p-8 overflow-hidden relative">
+    <div className="h-[calc(100vh-theme(spacing.20))] flex flex-col p-4 lg:p-6 overflow-hidden relative">
       {/* Header & Controls */}
-      <div className="flex justify-between items-center mb-6 shrink-0 z-10">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Pipeline</h1>
-          <p className="text-slate-500 text-sm font-medium mt-1">
-            <span className="text-indigo-600">{MOCK_DEALS.length} active deals</span> with total value of <span className="text-slate-700 font-semibold">${MOCK_DEALS.reduce((acc, curr) => acc + curr.value, 0).toLocaleString()}</span>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 shrink-0 z-10 gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Pipeline</h1>
+          <p className="text-slate-500 text-xs font-medium mt-0.5">
+            <span className="text-indigo-600">{deals.length} active deals</span> with total value of <span className="text-slate-700 font-semibold">${deals.reduce((acc, curr) => acc + (curr.value || 0), 0).toLocaleString()}</span>
           </p>
         </div>
         
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-3 flex-shrink-0">
           <div className="bg-white/40 p-1 rounded-xl flex space-x-1 border border-white/50 shadow-sm backdrop-blur-md">
-            <button 
+            <button
               onClick={() => setViewMode('board')}
-              className={`p-2 rounded-lg transition-all flex items-center gap-2 ${viewMode === 'board' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/30'}`}
+              className={`p-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${viewMode === 'board' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/30'}`}
             >
-              <KanbanSquare className="w-4 h-4" strokeWidth={2} />
-              <span className="text-xs font-medium">Board</span>
+              <KanbanSquare className="w-3.5 h-3.5" strokeWidth={2.5} />
+              <span className="text-[10px] font-bold uppercase tracking-wider">Board</span>
             </button>
-            <button 
+            <button
               onClick={() => setViewMode('timeline')}
-              className={`p-2 rounded-lg transition-all flex items-center gap-2 ${viewMode === 'timeline' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/30'}`}
+              className={`p-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${viewMode === 'timeline' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-white/30'}`}
             >
-              <ListTree className="w-4 h-4" strokeWidth={2} />
-              <span className="text-xs font-medium">Timeline</span>
+              <ListTree className="w-3.5 h-3.5" strokeWidth={2.5} />
+              <span className="text-[10px] font-bold uppercase tracking-wider">Timeline</span>
             </button>
           </div>
-          <button className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-xl shadow-slate-900/10 transition-all flex items-center border border-slate-700">
-            <Plus className="w-4 h-4 mr-2" strokeWidth={2} /> New Deal
+          <button className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg shadow-slate-900/10 transition-all flex items-center border border-slate-700 whitespace-nowrap">
+            <Plus className="w-4 h-4 mr-1.5" strokeWidth={2.5} /> New Deal
           </button>
         </div>
       </div>
 
       {/* Content Area */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4 z-0">
-        {viewMode === 'board' ? (
+        {loading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center text-slate-400">Loading pipeline data...</div>
+          </div>
+        ) : viewMode === 'board' ? (
           /* KANBAN BOARD */
-          <div className="flex space-x-6 h-full min-w-max px-2">
+          <div className="flex space-x-4 h-full min-w-max px-2">
             {PIPELINE_STAGES.map((stage) => {
-              const stageDeals = MOCK_DEALS.filter(d => d.stage === stage);
-              const stageValue = stageDeals.reduce((acc, val) => acc + val.value, 0);
+              const stageDeals = deals.filter(d => d.stage === stage);
+              const stageValue = stageDeals.reduce((acc, val) => acc + (val.value || 0), 0);
               
               return (
-                <div key={stage} className="w-[340px] flex flex-col h-full group">
-                  <div className="flex justify-between items-center mb-4 px-1 sticky top-0">
+                <div key={stage} className="w-[280px] flex flex-col h-full group">
+                  <div className="flex justify-between items-center mb-3 px-1 sticky top-0 bg-transparent">
                     <div>
-                      <span className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${stageDeals.length > 0 ? 'bg-indigo-500' : 'bg-slate-300'}`}></div>
+                      <span className="text-[11px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                        <div className={`w-1.5 h-1.5 rounded-full ${stageDeals.length > 0 ? 'bg-indigo-500' : 'bg-slate-300'}`}></div>
                         {formatStageName(stage)}
                       </span>
-                      <div className="text-[10px] text-slate-400 font-medium ml-4 mt-1">
+                      <div className="text-[9px] text-slate-400 font-bold ml-3.5 mt-0.5">
                         ${stageValue.toLocaleString()}
                       </div>
                     </div>
-                    <span className="text-xs font-semibold text-slate-500 bg-white/40 border border-white/50 px-2.5 py-1 rounded-full">{stageDeals.length}</span>
+                    <span className="text-[10px] font-bold text-slate-500 bg-white/40 border border-white/50 px-2 py-0.5 rounded-full">{stageDeals.length}</span>
                   </div>
                   
-                  <div className="flex-1 overflow-y-auto pr-2 space-y-3 pb-20 scrollbar-hide">
+                  <div className="flex-1 overflow-y-auto pr-1.5 space-y-2.5 pb-20 scrollbar-hide">
                     {stageDeals.map((deal) => (
                       <GlassCard 
                         key={deal.id} 
-                        className="p-5 group/card relative border-l-4 border-l-transparent hover:border-l-indigo-500 transition-all" 
+                        className="p-4 group/card relative border-l-4 border-l-transparent hover:border-l-indigo-500 transition-all" 
                         hoverEffect
                         onClick={() => setSelectedDeal(deal)}
                       >
@@ -106,16 +149,16 @@ const Pipeline: React.FC = () => {
                             <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-wider">{deal.company}</span>
                             <MoreVertical className="w-4 h-4 text-slate-300 opacity-0 group-hover/card:opacity-100 transition-opacity cursor-pointer hover:text-indigo-600" />
                          </div>
-                         <h4 className="font-bold text-slate-800 text-base mb-1 leading-snug">{deal.title}</h4>
-                         <div className="text-lg font-light text-slate-600 mb-4 tracking-tight flex items-baseline gap-1">
-                            <span className="text-xs text-slate-400 font-normal">$</span>{deal.value.toLocaleString()}
+                         <h4 className="font-bold text-slate-800 text-sm mb-0.5 leading-snug truncate">{deal.title}</h4>
+                         <div className="text-base font-bold text-slate-700 mb-3 tracking-tight flex items-baseline gap-0.5">
+                            <span className="text-[10px] text-slate-400 font-normal">$</span>{deal.value.toLocaleString()}
                          </div>
-                         <div className="flex justify-between items-center border-t border-slate-100/50 pt-3 mt-auto">
+                         <div className="flex justify-between items-center border-t border-slate-100/50 pt-2.5 mt-auto">
                             <div className="flex items-center space-x-2">
-                              <span className="text-xs text-slate-500 font-medium">{deal.probability}% Prob.</span>
+                              <span className="text-[10px] text-slate-500 font-bold">{deal.probability}% Prob.</span>
                             </div>
-                            <span className="text-[10px] text-slate-400 font-medium bg-slate-100/50 px-2 py-1 rounded flex items-center gap-1">
-                               <Clock className="w-3 h-3" /> {deal.lastContact}
+                            <span className="text-[9px] text-slate-400 font-bold bg-slate-100/50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                               <Clock className="w-2.5 h-2.5" /> {deal.lastContact}
                             </span>
                          </div>
                       </GlassCard>
@@ -141,8 +184,8 @@ const Pipeline: React.FC = () => {
             
             <div className="space-y-16 py-10">
               {PIPELINE_STAGES.map((stage, idx) => {
-                 const stageDeals = MOCK_DEALS.filter(d => d.stage === stage);
-                 const totalValue = stageDeals.reduce((sum, d) => sum + d.value, 0);
+                 const stageDeals = deals.filter(d => d.stage === stage);
+                 const totalValue = stageDeals.reduce((sum, d) => sum + (d.value || 0), 0);
                  
                  return (
                    <div key={stage} className={`flex items-start relative ${idx % 2 === 0 ? 'lg:flex-row' : 'lg:flex-row-reverse'} flex-row`}>
@@ -295,70 +338,128 @@ const Pipeline: React.FC = () => {
                <div className="grid grid-cols-3 gap-4">
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col items-center text-center">
                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Deal Value</span>
-                     <span className="text-xl font-bold text-slate-800">${selectedDeal.value.toLocaleString()}</span>
+                     <span className="text-xl font-bold text-slate-800">${(selectedDeal.value || 0).toLocaleString()}</span>
                   </div>
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col items-center text-center">
                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Probability</span>
-                     <span className="text-xl font-bold text-slate-800">{selectedDeal.probability}%</span>
+                     <span className="text-xl font-bold text-slate-800">{selectedDeal.probability || 0}%</span>
                   </div>
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col items-center text-center">
                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Est. Close</span>
-                     <span className="text-xl font-bold text-slate-800">Oct 24</span>
+                     <span className="text-xl font-bold text-slate-800">{generateEstCloseDate(selectedDeal.createdAt)}</span>
                   </div>
-               </div>
+              </div>
 
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-indigo-500" /> Actions
-                      </h3>
-                      <div className="mt-3 flex gap-2">
-                        <button className="flex-1 py-2 flex items-center justify-center gap-2 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 transition-colors">
-                          <Mail className="w-3.5 h-3.5" /> Email
-                        </button>
-                        <button className="flex-1 py-2 flex items-center justify-center gap-2 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 transition-colors">
-                          <Phone className="w-3.5 h-3.5" /> Call
-                        </button>
-                      </div>
-                    </div>
+                 <div className="space-y-6">
+                   <div>
+                     <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                       <Building2 className="w-4 h-4 text-indigo-500" /> Actions
+                     </h3>
+                     <div className="mt-3 flex gap-2">
+                       <button
+                         onClick={async () => {
+                           if (selectedDeal?.leadId) {
+                             await logActivity('email', `Email sent to ${selectedDeal.lead?.business?.name || selectedDeal.company}`, selectedDeal.leadId);
+                             // Refresh activities
+                             const updatedActivities = await getActivities(20);
+                             setActivities(updatedActivities);
+                           }
+                         }}
+                         className="flex-1 py-2 flex items-center justify-center gap-2 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 transition-colors"
+                       >
+                         <Mail className="w-3.5 h-3.5" /> Email
+                       </button>
+                       <button
+                         onClick={async () => {
+                           if (selectedDeal?.leadId) {
+                             await logActivity('call', `Call with ${selectedDeal.lead?.business?.name || selectedDeal.company}`, selectedDeal.leadId);
+                             // Refresh activities
+                             const updatedActivities = await getActivities(20);
+                             setActivities(updatedActivities);
+                           }
+                         }}
+                         className="flex-1 py-2 flex items-center justify-center gap-2 rounded-lg border border-slate-200 text-xs font-medium hover:bg-slate-50 transition-colors"
+                       >
+                         <Phone className="w-3.5 h-3.5" /> Call
+                       </button>
+                     </div>
+                   </div>
 
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-indigo-500" /> Next Steps
-                      </h3>
-                      <div className="space-y-3">
-                         <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100/50">
-                           <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-amber-400"></div>
-                           <div>
-                             <p className="text-sm font-medium text-slate-800">Review proposal</p>
-                             <p className="text-xs text-slate-500 mt-1">Due tomorrow at 5:00 PM</p>
-                           </div>
-                         </div>
-                      </div>
-                    </div>
-                  </div>
+                   <div>
+                     <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                       <Calendar className="w-4 h-4 text-indigo-500" /> Next Steps
+                     </h3>
+                     <div className="space-y-3">
+                        <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100/50">
+                          <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-amber-400"></div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-800">Follow up on proposal</p>
+                            <p className="text-xs text-slate-500 mt-1">Est. close: {generateEstCloseDate(selectedDeal.createdAt)}</p>
+                          </div>
+                        </div>
+                     </div>
+                   </div>
+                 </div>
 
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-indigo-500" /> Activity Log
-                    </h3>
-                    <div className="relative border-l border-slate-200 ml-2 space-y-6 pl-6 pb-2">
-                       {[
-                         { title: 'Stage changed to Proposal', time: '2 hours ago', icon: ArrowRight, color: 'text-indigo-600', bg: 'bg-indigo-100' },
-                         { title: 'Email sent: Q3 Roadmap', time: 'Yesterday', icon: Mail, color: 'text-blue-600', bg: 'bg-blue-100' },
-                       ].map((activity, i) => (
-                         <div key={i} className="relative">
-                            <div className={`absolute -left-[33px] top-0 w-8 h-8 rounded-full ${activity.bg} flex items-center justify-center border-4 border-white`}>
-                              <activity.icon className={`w-3.5 h-3.5 ${activity.color}`} />
-                            </div>
-                            <p className="text-sm font-medium text-slate-800">{activity.title}</p>
-                            <p className="text-xs text-slate-400 mt-0.5">{activity.time}</p>
-                         </div>
-                       ))}
-                    </div>
-                  </div>
-               </div>
+                 <div>
+                   <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                     <Clock className="w-4 h-4 text-indigo-500" /> Activity Log
+                   </h3>
+                   <div className="relative border-l border-slate-200 ml-2 space-y-6 pl-6 pb-2">
+                      {activities.length > 0 ? (
+                        activities
+                          .filter(activity =>
+                            selectedDeal.leadId && activity.description.includes(selectedDeal.lead?.business?.name || selectedDeal.company)
+                          )
+                          .slice(0, 5)
+                          .map((activity, i) => {
+                            const getActivityIcon = (type: string) => {
+                              switch(type) {
+                                case 'email': return Mail;
+                                case 'call': return Phone;
+                                case 'meeting': return Calendar;
+                                default: return ArrowRight;
+                              }
+                            };
+                            
+                            const getActivityColor = (type: string) => {
+                              switch(type) {
+                                case 'email': return 'text-blue-600 bg-blue-100';
+                                case 'call': return 'text-green-600 bg-green-100';
+                                case 'meeting': return 'text-purple-600 bg-purple-100';
+                                default: return 'text-indigo-600 bg-indigo-100';
+                              }
+                            };
+                            
+                            const [color, bg] = getActivityColor(activity.type).split(' ');
+                            const Icon = getActivityIcon(activity.type);
+                            const timeAgo = new Date(activity.timestamp).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            });
+                            
+                            return (
+                              <div key={activity.id} className="relative">
+                                 <div className={`absolute -left-[33px] top-0 w-8 h-8 rounded-full ${bg} flex items-center justify-center border-4 border-white`}>
+                                   <Icon className={`w-3.5 h-3.5 ${color}`} />
+                                 </div>
+                                 <p className="text-sm font-medium text-slate-800">{activity.description}</p>
+                                 <p className="text-xs text-slate-400 mt-0.5">{timeAgo}</p>
+                              </div>
+                            );
+                          })
+                      ) : (
+                        <div className="text-center text-slate-400 py-4">
+                          <p className="text-sm">No activities logged yet</p>
+                          <p className="text-xs mt-1">Use action buttons above to log activities</p>
+                        </div>
+                      )}
+                   </div>
+                 </div>
+              </div>
             </div>
           </div>
         </div>

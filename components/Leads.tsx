@@ -107,6 +107,12 @@ const Leads: React.FC = () => {
   const [newLeadTiktok, setNewLeadTiktok] = useState('');
   const [newLeadLinkedin, setNewLeadLinkedin] = useState('');
   const [newLeadTelegram, setNewLeadTelegram] = useState('');
+  
+  // Filter State
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterTimeRange, setFilterTimeRange] = useState('');
+  const [filterOutcome, setFilterOutcome] = useState('');
 
   useEffect(() => {
     fetchLeads();
@@ -161,7 +167,38 @@ const Leads: React.FC = () => {
       lead.business.website.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (lead.business.email && lead.business.email.toLowerCase().includes(searchQuery.toLowerCase()));
     
-    return matchesSearch;
+    // Status filter
+    const matchesStatus = !filterStatus || lead.status === filterStatus;
+    
+    // Time range filter
+    let matchesTimeRange = true;
+    if (filterTimeRange) {
+      const leadDate = new Date(lead.createdAt || '');
+      const now = new Date();
+      
+      switch (filterTimeRange) {
+        case 'today':
+          matchesTimeRange = leadDate.toDateString() === now.toDateString();
+          break;
+        case 'week':
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          matchesTimeRange = leadDate >= weekAgo;
+          break;
+        case 'month':
+          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          matchesTimeRange = leadDate >= monthAgo;
+          break;
+        case 'quarter':
+          const quarterAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+          matchesTimeRange = leadDate >= quarterAgo;
+          break;
+      }
+    }
+    
+    // Outcome filter
+    const matchesOutcome = !filterOutcome || lead.outcome === filterOutcome;
+    
+    return matchesSearch && matchesStatus && matchesTimeRange && matchesOutcome;
   });
 
   // Organize columns using specific data sources
@@ -210,29 +247,56 @@ const Leads: React.FC = () => {
       'Converted': '#10b981'
   };
 
-  // Outcome Summary - filter out tracking/offer leads for analytics
-  const regularLeads = leads.filter(l => l.source !== 'Outreach Tracking' && l.source !== 'Offer');
-  const interestedCount = regularLeads.filter(l => l.outcome === 'Interested').length;
-  const noReplyCount = regularLeads.filter(l => l.outcome === 'No Reply').length;
-  const badFitCount = regularLeads.filter(l => l.outcome === 'Bad Fit').length;
+  // Outcome Summary - update calculations based on user requirements
+  const interestedCount = columns.Negotiations.length;
+  const noReplyCount = columns['No Reply'].length;
+  const badFitCount = leads.filter(l => l.outcome === 'Bad Fit').length;
 
   // Sophisticated Pipeline Health
   const funnelData = [
-    { name: 'Total Scoped', value: 100, fill: '#f1f5f9' },
-    { name: 'Initial Contact', value: 85, fill: '#94a3b8' },
-    { name: 'Qualified', value: 62, fill: '#6366f1' },
-    { name: 'In Discussion', value: columns.Negotiations.length + 15, fill: '#8b5cf6' },
-    { name: 'Converted', value: columns.Converted.length + 5, fill: '#10b981' },
+    { name: 'Total Scoped', value: leads.length, fill: '#f1f5f9' },
+    { name: 'Initial Contact', value: columns.New.length + columns['No Reply'].length, fill: '#94a3b8' },
+    { name: 'Qualified', value: leads.filter(l => l.outcome === 'Interested').length, fill: '#6366f1' },
+    { name: 'In Discussion', value: columns.Negotiations.length, fill: '#8b5cf6' },
+    { name: 'Converted', value: columns.Converted.length, fill: '#10b981' },
   ];
 
-  // Engagement Intensity Data
-  const intensityData = [
-    { day: 'Mon', touches: 45, conversions: 2 },
-    { day: 'Tue', touches: 52, conversions: 4 },
-    { day: 'Wed', touches: 68, conversions: 3 },
-    { day: 'Thu', touches: 58, conversions: 5 },
-    { day: 'Fri', touches: 48, conversions: 8 },
-  ];
+  // Engagement Intensity Data - Calculate actual outreach data by day
+  const calculateOutreachData = () => {
+    const outreachLeads = leads.filter(l => l.source === 'Outreach Tracking');
+    const dayData: Record<string, { touches: number, conversions: number }> = {};
+    
+    // Initialize all days of the week
+    const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    daysOfWeek.forEach(day => {
+      dayData[day] = { touches: 0, conversions: 0 };
+    });
+    
+    // Count outreach by day
+    outreachLeads.forEach(lead => {
+      if (lead.createdAt) {
+        const date = new Date(lead.createdAt);
+        const dayName = daysOfWeek[date.getDay()];
+        if (dayData[dayName]) {
+          dayData[dayName].touches++;
+          if (lead.outcome === 'Interested') {
+            dayData[dayName].conversions++;
+          }
+        }
+      }
+    });
+    
+    // Convert to array format for chart (only show weekdays)
+    return [
+      { day: 'Mon', ...dayData['Mon'] },
+      { day: 'Tue', ...dayData['Tue'] },
+      { day: 'Wed', ...dayData['Wed'] },
+      { day: 'Thu', ...dayData['Thu'] },
+      { day: 'Fri', ...dayData['Fri'] },
+    ];
+  };
+
+  const intensityData = calculateOutreachData();
 
   const handleAddLead = async () => {
     // Validation: Business name is mandatory, and at least one of website, email, or social media
@@ -387,7 +451,7 @@ const Leads: React.FC = () => {
             <p className="text-slate-500 text-sm mt-1">Advanced prospect intelligence & pipeline oversight.</p>
             <button
                 onClick={() => setShowAddLeadModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-purple-700 transition-all mt-4"
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-purple-700 transition-all mt-4 text-base"
             >
                 <PlusCircle className="w-5 h-5" />
                 <span>Add Lead</span>
@@ -404,9 +468,90 @@ const Leads: React.FC = () => {
                  className="pl-10 pr-4 py-2 bg-white/60 backdrop-blur-sm border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-48 transition-all"
                />
              </div>
-             <button className="p-2 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
-               <Filter className="w-4 h-4" />
-             </button>
+             <div className="relative">
+               <button
+                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                 className="p-2 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2"
+               >
+                 <Filter className="w-4 h-4" />
+                 <span className="text-xs font-medium">Filter</span>
+               </button>
+               
+               {/* Filter Dropdown */}
+               {showFilterDropdown && (
+                 <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 p-4">
+                   <h4 className="font-bold text-slate-800 text-sm mb-3">Filter Leads</h4>
+                   
+                   {/* Status Filter */}
+                   <div className="mb-4">
+                     <label className="block text-xs font-medium text-slate-700 mb-2">Status</label>
+                     <select
+                       value={filterStatus}
+                       onChange={(e) => setFilterStatus(e.target.value)}
+                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                     >
+                       <option value="">All Status</option>
+                       <option value="New">New</option>
+                       <option value="No Reply">No Reply</option>
+                       <option value="Negotiations">Negotiations</option>
+                       <option value="Converted">Converted</option>
+                     </select>
+                   </div>
+                   
+                   {/* Time Range Filter */}
+                   <div className="mb-4">
+                     <label className="block text-xs font-medium text-slate-700 mb-2">Time Range</label>
+                     <select
+                       value={filterTimeRange}
+                       onChange={(e) => setFilterTimeRange(e.target.value)}
+                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                     >
+                       <option value="">All Time</option>
+                       <option value="today">Today</option>
+                       <option value="week">This Week</option>
+                       <option value="month">This Month</option>
+                       <option value="quarter">This Quarter</option>
+                     </select>
+                   </div>
+                   
+                   {/* Outcome Filter */}
+                   <div className="mb-4">
+                     <label className="block text-xs font-medium text-slate-700 mb-2">Outcome</label>
+                     <select
+                       value={filterOutcome}
+                       onChange={(e) => setFilterOutcome(e.target.value)}
+                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                     >
+                       <option value="">All Outcomes</option>
+                       <option value="Interested">Interested</option>
+                       <option value="No Reply">No Reply</option>
+                       <option value="Bad Fit">Bad Fit</option>
+                     </select>
+                   </div>
+                   
+                   {/* Clear Filters Button */}
+                   <div className="flex gap-2">
+                     <button
+                       onClick={() => {
+                         setFilterStatus('');
+                         setFilterTimeRange('');
+                         setFilterOutcome('');
+                         setShowFilterDropdown(false);
+                       }}
+                       className="flex-1 px-3 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
+                     >
+                       Clear
+                     </button>
+                     <button
+                       onClick={() => setShowFilterDropdown(false)}
+                       className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                     >
+                       Apply
+                     </button>
+                   </div>
+                 </div>
+               )}
+             </div>
           </div>
         </div>
 
@@ -673,42 +818,101 @@ const Leads: React.FC = () => {
                 <div className="space-y-6">
                     <GlassCard className="p-6 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white border-none shadow-indigo-200 shadow-xl">
                         <div className="flex items-center gap-3 mb-4 opacity-80 uppercase text-[10px] font-bold tracking-[0.2em]">
-                            <TrendingUp className="w-4 h-4" /> Growth Velocity
+                            <TrendingUp className="w-4 h-4" /> Growth
                         </div>
-                        <div className="text-4xl font-bold tracking-tighter mb-1">+22%</div>
-                        <p className="text-indigo-100 text-xs font-medium">Weekly Outreach Expansion</p>
+                        <div className="text-4xl font-bold tracking-tighter mb-1">
+                            {columns.New.length + columns['No Reply'].length > 0
+                                ? Math.round((columns.Negotiations.length / (columns.New.length + columns['No Reply'].length)) * 100)
+                                : 0}%
+                        </div>
+                        <p className="text-indigo-100 text-xs font-medium">Negotiations Rate</p>
                         <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
                             <div className="text-center">
-                                <div className="text-sm font-bold">4.2d</div>
+                                <div className="text-sm font-bold">
+                                    {(() => {
+                                        const newLeads = columns.New;
+                                        const negotiationLeads = columns.Negotiations;
+                                        if (newLeads.length === 0 || negotiationLeads.length === 0) return 'N/A';
+                                        
+                                        const totalDays = newLeads.reduce((sum, lead) => {
+                                            if (lead.createdAt) {
+                                                const createdDate = new Date(lead.createdAt);
+                                                const today = new Date();
+                                                return sum + Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+                                            }
+                                            return sum;
+                                        }, 0);
+                                        
+                                        return newLeads.length > 0 ? (totalDays / newLeads.length).toFixed(1) + 'd' : 'N/A';
+                                    })()}
+                                </div>
                                 <div className="text-[9px] opacity-70 uppercase">First Reply</div>
                             </div>
                             <div className="w-px h-6 bg-white/10"></div>
                             <div className="text-center">
-                                <div className="text-sm font-bold">12%</div>
+                                <div className="text-sm font-bold">
+                                    {columns.New.length + columns['No Reply'].length > 0
+                                        ? Math.round((columns.Negotiations.length / (columns.New.length + columns['No Reply'].length)) * 100)
+                                        : 0}%
+                                </div>
                                 <div className="text-[9px] opacity-70 uppercase">CTR</div>
                             </div>
                         </div>
                     </GlassCard>
 
                     <GlassCard className="p-6">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Pipeline Health Summary</h4>
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium text-slate-600">Fresh Momentum</span>
-                                <span className="text-sm font-bold text-emerald-500">Strong</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-100 rounded-full">
-                                <div className="h-full bg-emerald-500 rounded-full" style={{ width: '75%' }}></div>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium text-slate-600">Reply Consistency</span>
-                                <span className="text-sm font-bold text-amber-500">Fair</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-100 rounded-full">
-                                <div className="h-full bg-amber-500 rounded-full" style={{ width: '45%' }}></div>
-                            </div>
-                        </div>
-                    </GlassCard>
+                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Pipeline Health Summary</h4>
+                       <div className="space-y-4">
+                           <div className="flex justify-between items-center">
+                               <span className="text-sm font-medium text-slate-600">Fresh Momentum</span>
+                               <span className={`text-sm font-bold ${
+                                   columns.New.length > 0 ?
+                                       (columns.Converted.length / columns.New.length) >= 1 ? 'text-emerald-500' : 'text-amber-500'
+                                       : 'text-slate-400'
+                               }`}>
+                                   {columns.New.length > 0 ?
+                                       (columns.Converted.length / columns.New.length) >= 1 ? 'Strong' : 'Weak'
+                                       : 'N/A'
+                                   }
+                               </span>
+                           </div>
+                           <div className="w-full h-1.5 bg-slate-100 rounded-full">
+                               <div className={`h-full rounded-full ${
+                                   columns.New.length > 0 ?
+                                       (columns.Converted.length / columns.New.length) >= 1 ? 'bg-emerald-500' : 'bg-amber-500'
+                                       : 'bg-slate-200'
+                               }`} style={{
+                                   width: columns.New.length > 0 ?
+                                       Math.min((columns.Converted.length / columns.New.length) * 100, 100) + '%'
+                                       : '0%'
+                               }}></div>
+                           </div>
+                           <div className="flex justify-between items-center">
+                               <span className="text-sm font-medium text-slate-600">Reply Consistency</span>
+                               <span className={`text-sm font-bold ${
+                                   columns.New.length + columns['No Reply'].length > 0 ?
+                                       (columns.Negotiations.length / (columns.New.length + columns['No Reply'].length)) >= 0.5 ? 'text-emerald-500' : 'text-amber-500'
+                                       : 'text-slate-400'
+                               }`}>
+                                   {columns.New.length + columns['No Reply'].length > 0 ?
+                                       (columns.Negotiations.length / (columns.New.length + columns['No Reply'].length)) >= 0.5 ? 'Strong' : 'Weak'
+                                       : 'N/A'
+                                   }
+                               </span>
+                           </div>
+                           <div className="w-full h-1.5 bg-slate-100 rounded-full">
+                               <div className={`h-full rounded-full ${
+                                   columns.New.length + columns['No Reply'].length > 0 ?
+                                       (columns.Negotiations.length / (columns.New.length + columns['No Reply'].length)) >= 0.5 ? 'bg-emerald-500' : 'bg-amber-500'
+                                       : 'bg-slate-200'
+                               }`} style={{
+                                   width: columns.New.length + columns['No Reply'].length > 0 ?
+                                       Math.min((columns.Negotiations.length / (columns.New.length + columns['No Reply'].length)) * 100, 100) + '%'
+                                       : '0%'
+                               }}></div>
+                           </div>
+                       </div>
+                   </GlassCard>
                 </div>
 
                 {/* Activity Volume vs. Success Index */}

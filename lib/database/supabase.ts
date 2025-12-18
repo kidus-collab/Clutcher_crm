@@ -704,32 +704,38 @@ export async function getOffers(): Promise<any[]> {
     return [];
   }
   
-  return offers.map(offer => ({
-    id: offer.id,
-    leadId: offer.lead_id,
-    title: offer.title,
-    description: offer.description,
-    value: offer.value,
-    stage: offer.stage,
-    probability: offer.probability,
-    createdAt: offer.created_at,
-    updatedAt: offer.updated_at,
-    lead: {
-      id: offer.leads.id,
-      business: {
-        id: offer.leads.businesses.id,
-        name: offer.leads.businesses.name,
-        website: offer.leads.businesses.website,
-        email: offer.leads.businesses.email,
-        phone: offer.leads.businesses.phone,
-        socials: (offer.leads.businesses.social_profiles || []).map((sp: any) => ({
-          platform: sp.platform,
-          url: sp.url,
-          handle: sp.handle
-        }))
+  return offers.map(offer => {
+    const lead = offer.leads || {};
+    const business = lead.businesses || {};
+    const socials = business.social_profiles || [];
+    
+    return {
+      id: offer.id,
+      leadId: offer.lead_id,
+      title: offer.title,
+      description: offer.description,
+      value: offer.value,
+      stage: offer.stage,
+      probability: offer.probability,
+      createdAt: offer.created_at,
+      updatedAt: offer.updated_at,
+      lead: {
+        id: lead.id || '',
+        business: {
+          id: business.id || '',
+          name: business.name || 'Unknown Business',
+          website: business.website || '',
+          email: business.email || '',
+          phone: business.phone || '',
+          socials: socials.map((sp: any) => ({
+            platform: sp.platform,
+            url: sp.url,
+            handle: sp.handle
+          }))
+        }
       }
-    }
-  }));
+    };
+  });
 }
 
 /**
@@ -1100,3 +1106,52 @@ export async function getClosedLeads(): Promise<any[]> {
   }));
 }
 
+/**
+ * Log outreach tracking event
+ */
+export async function logOutreachTracking(
+  leadId: string,
+  businessName: string,
+  actionType: string,
+  actionDetails: any,
+  sourcePage: string = 'outreach_page'
+): Promise<boolean> {
+  if (!supabase) return false;
+  
+  const { error } = await supabase
+    .from('outreach_tracking')
+    .insert({
+      lead_id: leadId,
+      business_name: businessName,
+      action_type: actionType,
+      action_details: actionDetails,
+      source_page: sourcePage,
+      timestamp: new Date().toISOString()
+    });
+    
+  if (error) {
+    console.error('Error logging outreach tracking:', error);
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Get the total number of outreach actions sent
+ */
+export async function getOutreachSentCount(): Promise<number> {
+  if (!supabase) return 0;
+  
+  const { count, error } = await supabase
+    .from('outreach_tracking')
+    .select('*', { count: 'exact', head: true })
+    .in('action_type', ['email_sent', 'social_clicked', 'outreach_button_clicked']);
+    
+  if (error) {
+    console.error('Error fetching outreach sent count:', error);
+    return 0;
+  }
+  
+  return count || 0;
+}

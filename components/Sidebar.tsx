@@ -29,12 +29,18 @@ const Sidebar: React.FC = () => {
   return (
     <aside className="h-screen w-20 lg:w-64 fixed left-0 top-0 z-50 flex flex-col bg-slate-900/95 backdrop-blur-3xl border-r border-white/5 text-slate-300 shadow-2xl transition-all duration-300">
       {/* Logo Area */}
-      <div className="h-24 flex items-center px-6 border-b border-white/5">
-        <div className="relative flex items-center justify-center w-10 h-10 bg-indigo-500/10 rounded-xl border border-indigo-500/20 shadow-[0_0_15px_-3px_rgba(99,102,241,0.3)]">
-          <Hexagon className="w-5 h-5 text-indigo-400 fill-indigo-500/20" strokeWidth={2} />
+      <div className="h-32 flex items-center justify-center px-6 border-b border-white/5">
+        <div className="hidden lg:flex flex-col items-center justify-center gap-2">
+          <div className="relative flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 duration-300">
+            <Hexagon className="w-9 h-9 text-white" strokeWidth={2.5} />
+          </div>
+          <span className="font-bold text-white tracking-widest text-2xl leading-none uppercase">Clutcher</span>
         </div>
-        <div className="hidden lg:flex flex-col ml-4">
-          <span className="font-bold text-white tracking-tight text-xl leading-none">Clutcher</span>
+        {/* Mobile only - icon only */}
+        <div className="lg:hidden flex items-center justify-center">
+          <div className="relative flex items-center justify-center w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-[0_0_15px_rgba(99,102,241,0.3)]">
+            <Hexagon className="w-7 h-7 text-white" strokeWidth={2.5} />
+          </div>
         </div>
       </div>
 

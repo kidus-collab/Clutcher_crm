@@ -20,10 +20,12 @@ import {
   TrendingUp,
   ChevronRight,
   ChevronLeft,
-  Bell
+  Bell,
+  Database,
+  Activity as ActivityIcon
 } from 'lucide-react';
 import GlassCard from './ui/GlassCard';
-import { supabase, getDashboardStats, getActivities, getLeads, logActivity, getFollowUpTasks, updateFollowUpTaskStatus, deleteFollowUpTask, createFollowUpTask } from '../lib/database/supabase';
+import { supabase, getDashboardStats, getActivities, getLeads, logActivity, getFollowUpTasks, updateFollowUpTaskStatus, deleteFollowUpTask, createFollowUpTask, getOffers, getOutreachSentCount } from '../lib/database/supabase';
 import { Activity } from '../types';
 import { useNavigate } from 'react-router-dom';
 
@@ -38,13 +40,24 @@ const Dashboard: React.FC = () => {
   const [newReminder, setNewReminder] = useState({ title: '', date: '', time: '' });
   const [loading, setLoading] = useState(true);
   const [scraperStatus, setScraperStatus] = useState<'active' | 'inactive' | 'checking'>('checking');
+  const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
   const notificationDropdownRef = useRef<HTMLDivElement>(null);
   const [leads, setLeads] = useState<any[]>([]);
+  const [offers, setOffers] = useState<any[]>([]);
+  const [outreachCount, setOutreachCount] = useState(0);
+  
+  // Add task modal state
+  const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
+  const [newTask, setNewTask] = useState({ title: '', date: '', priority: 'Medium' as 'Low' | 'Medium' | 'High' });
+  
+  // Calendar state
+  const [currentMonth, setCurrentMonth] = useState(new Date());
 
   useEffect(() => {
     fetchData();
     checkScraperStatus();
+    checkDbStatus();
     
     // Close notification dropdown when clicking outside
     const handleClickOutside = (event: MouseEvent) => {
@@ -75,6 +88,21 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const checkDbStatus = async () => {
+    try {
+      if (!supabase) {
+        setDbStatus('disconnected');
+        return;
+      }
+      
+      // Simple test query to check if DB is accessible
+      const { error } = await supabase.from('leads').select('id').limit(1);
+      setDbStatus(error ? 'disconnected' : 'connected');
+    } catch (error) {
+      setDbStatus('disconnected');
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
     
@@ -83,10 +111,31 @@ const Dashboard: React.FC = () => {
     setLeads(leadsData);
     const totalLeads = leadsData.length;
     
+    // Fetch offers for revenue calculation
+    const offersData = await getOffers();
+    setOffers(offersData);
+    
     // Calculate KPIs based on actual lead status
     const closedLeads = leadsData.filter(l => l.status === 'Converted').length;
     const unclosedLeads = leadsData.filter(l => l.status === 'New').length;
     const outreachLeads = leadsData.filter(l => l.status === 'No Reply' || (l.status as any) === 'Outreach').length;
+    
+    // Calculate weekly stats
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    
+    const closedThisWeek = leadsData.filter(l =>
+      l.status === 'Converted' &&
+      new Date(l.createdAt || '') > oneWeekAgo
+    ).length;
+    
+    const leadsThisWeek = leadsData.filter(l =>
+      new Date(l.createdAt || '') > oneWeekAgo
+    ).length;
+    
+    // Calculate outreach sent from database
+    const outreachSentValue = await getOutreachSentCount();
+    setOutreachCount(outreachSentValue);
     
     // Update stats with calculated values
     setStats({
@@ -97,8 +146,8 @@ const Dashboard: React.FC = () => {
     });
 
     // 2. Fetch Activities (Reminders)
-    const activities = await getActivities(5, true); // Get upcoming only
-    setReminders(activities);
+    const upcomingActivities = await getActivities(5, true); // Get upcoming only
+    setReminders(upcomingActivities);
 
     // 3. Fetch Follow-up Tasks
     const followUps = await getFollowUpTasks();
@@ -143,6 +192,23 @@ const Dashboard: React.FC = () => {
     }));
   };
 
+  // Calculate weekly stats
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  
+  const closedThisWeek = leads.filter(l =>
+    l.status === 'Converted' &&
+    new Date(l.createdAt || '') > oneWeekAgo
+  ).length;
+  
+  const totalRevenue = offers.reduce((sum, offer) => sum + (offer.value || 0), 0);
+  
+  const leadsThisWeek = leads.filter(l =>
+    new Date(l.createdAt || '') > oneWeekAgo
+  ).length;
+  
+  const closedThisWeekPercentage = leads.length > 0 ? Math.round((closedThisWeek / leads.length) * 100) : 0;
+
   const handleAddReminder = async () => {
     if (!newReminder.title || !newReminder.date) return;
     
@@ -173,6 +239,75 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleAddTask = async () => {
+    if (!newTask.title || !newTask.date) return;
+    
+    try {
+      const timestamp = new Date(newTask.date).toISOString();
+      const success = await createFollowUpTask(
+        '', // Empty lead ID for general tasks
+        newTask.title,
+        newTask.title,
+        timestamp,
+        newTask.priority
+      );
+      
+      if (success) {
+        setIsAddTaskModalOpen(false);
+        setNewTask({ title: '', date: '', priority: 'Medium' });
+        fetchData(); // Refresh list
+      } else {
+        throw new Error('Failed to create task');
+      }
+    } catch (error) {
+      console.error('Error adding task:', error);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    // Add to completing set for animation
+    setCompletingTaskIds(prev => new Set(prev).add(taskId));
+    
+    // Wait for animation then delete
+    setTimeout(async () => {
+      const success = await deleteFollowUpTask(taskId);
+      if (success) {
+        setFollowUpTasks(prev => prev.filter(task => task.id !== taskId));
+      }
+      setCompletingTaskIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(taskId);
+        return newSet;
+      });
+    }, 300); // Animation duration
+  };
+
+  // Calendar functions
+  const getDaysInMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const formatMonthYear = (date: Date) => {
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  const changeMonth = (direction: number) => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + direction, 1));
+  };
+
+  const getTasksForDate = (day: number) => {
+    return followUpTasks.filter(task => {
+      const taskDate = new Date(task.scheduledDate);
+      return taskDate.getDate() === day && 
+             taskDate.getMonth() === currentMonth.getMonth() && 
+             taskDate.getFullYear() === currentMonth.getFullYear();
+    });
+  };
+
   const totalLeads = leads.length;
   const closedLeadsCount = leads.filter(l => l.status === 'Closed' || l.status === 'Converted').length;
   const activeLeadsCount = totalLeads - closedLeadsCount;
@@ -180,71 +315,211 @@ const Dashboard: React.FC = () => {
   // Filter for unclosed leads (excluding 'Closed' and 'Converted')
   const unclosedLeads = leads.filter(l => l.status !== 'Closed' && l.status !== 'Converted');
 
-  const KPIS = [
-    { label: 'Archived', value: closedLeadsCount, icon: CheckSquare, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Active Pipeline', value: activeLeadsCount, icon: Users, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-    { label: 'New Today', value: 12, icon: PlusCircle, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Outreach Sent', value: 350, icon: Send, color: 'text-purple-600', bg: 'bg-purple-50' },
-  ];
+  // Exchange rate state
+  const [showUSD, setShowUSD] = useState(true);
+  const [exchangeRate, setExchangeRate] = useState(120); // 1 USD = 120 ETB
 
-  const UPCOMING_FOLLOWUPS = [
-    { company: 'Cyberdyne Systems', time: '10:00 AM', status: 'High', date: 24 },
-    { company: 'Weyland-Yutani', time: '2:30 PM', status: 'Medium', date: 24 },
-    { company: 'Stark Ind', time: 'Tomorrow', status: 'Critical', date: 25 },
-    { company: 'The Continental', time: 'Friday', status: 'Low', date: 26 },
+  const KPIS = [
+    {
+      label: 'Total Revenue',
+      value: showUSD
+        ? `$${totalRevenue.toLocaleString()}`
+        : `${(totalRevenue * exchangeRate).toLocaleString()} Br`,
+      icon: CheckSquare,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+      percentage: totalRevenue > 0 ? '+12%' : '+0%',
+      toggle: (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowUSD(!showUSD);
+          }}
+          className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md text-[10px] font-bold hover:bg-emerald-200 transition-colors"
+        >
+          {showUSD ? 'BIRR' : 'USD'}
+        </button>
+      )
+    },
+    { 
+      label: 'Closed This Week', 
+      value: closedThisWeek, 
+      icon: Users, 
+      color: 'text-blue-600', 
+      bg: 'bg-blue-50',
+      percentage: `${closedThisWeekPercentage}%`
+    },
+    { 
+      label: 'Outreach Sent', 
+      value: outreachCount, 
+      icon: Send, 
+      color: 'text-white', 
+      bg: 'bg-gradient-to-br from-indigo-500 to-indigo-700',
+      percentage: outreachCount > 0 ? '+10%' : '+0%',
+      isPremium: true
+    },
+    { 
+      label: 'Leads This Week', 
+      value: leadsThisWeek, 
+      icon: Database, 
+      color: dbStatus === 'connected' ? 'text-green-600' : 'text-red-600', 
+      bg: dbStatus === 'connected' ? 'bg-green-50' : 'bg-red-50',
+      percentage: leadsThisWeek > 0 ? '+15%' : '+0%'
+    },
   ];
 
   // Calendar Logic
-  const daysInMonth = 31;
-  const currentDay = 24;
-  const calendarDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const daysInMonth = getDaysInMonth(currentMonth);
+  const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
+  const currentDay = new Date().getDate();
+  const isCurrentMonth = currentMonth.getMonth() === new Date().getMonth() && 
+                       currentMonth.getFullYear() === new Date().getFullYear();
+  
+  // Generate calendar days with empty slots for alignment
+  const calendarDays: (number | null)[] = [];
+  // Add empty slots for days before month starts
+  for (let i = 0; i < firstDayOfMonth; i++) {
+    calendarDays.push(null);
+  }
+  // Add actual days of month
+  for (let i = 1; i <= daysInMonth; i++) {
+    calendarDays.push(i);
+  }
 
   return (
-    <div className="p-6 lg:p-10 space-y-8 animate-fade-in pb-32 min-h-full">
+    <div className="p-4 lg:p-8 space-y-6 animate-fade-in pb-24 min-h-full">
       <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Overview</h1>
-          <p className="text-slate-500 text-sm mt-1 font-medium">Welcome back, John. Here's your performance snapshot.</p>
+        <div className="py-2">
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Overview</h1>
+          <p className="text-slate-500 text-xs mt-1 font-medium">Welcome back, Here's your performance snapshot.</p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-white/60 px-4 py-2 rounded-xl border border-white/40 shadow-sm">
-            <TrendingUp className="w-4 h-4 text-emerald-500" />
-            <span className="text-sm font-bold text-slate-700">+12% from last week</span>
+        <div className="flex items-center gap-3">
+          {/* Database Status Card */}
+          <div className={`px-3 py-2 rounded-xl border shadow-sm flex items-center gap-2 ${
+            dbStatus === 'connected'
+              ? 'bg-green-50 border-green-200 text-green-700'
+              : 'bg-red-50 border-red-200 text-red-700'
+          }`}>
+            <Database className="w-4 h-4" />
+            <span className="text-xs font-medium">
+              DB: {dbStatus === 'connected' ? 'Connected' : 'Disconnected'}
+            </span>
           </div>
-          <button className="p-2.5 bg-white/60 rounded-xl border border-white/40 shadow-sm text-slate-500 hover:text-indigo-600 transition-colors">
-            <Bell className="w-5 h-5" />
-          </button>
+          
+          {/* Scraper Status Card */}
+          <div className={`px-3 py-2 rounded-xl border shadow-sm flex items-center gap-2 ${
+            scraperStatus === 'active'
+              ? 'bg-green-50 border-green-200 text-green-700'
+              : 'bg-red-50 border-red-200 text-red-700'
+          }`}>
+            <ActivityIcon className="w-4 h-4" />
+            <span className="text-xs font-medium uppercase tracking-tight">
+              Scraper: {scraperStatus === 'active' ? 'Active' : 'Inactive'}
+            </span>
+          </div>
+          
+          <div className="relative" ref={notificationDropdownRef}>
+            <button
+              onClick={() => setIsNotificationDropdownOpen(!isNotificationDropdownOpen)}
+              className="p-2 bg-white/60 rounded-xl border border-white/40 shadow-sm text-slate-500 hover:text-indigo-600 transition-colors relative"
+            >
+              <Bell className="w-4 h-4" />
+              {followUpTasks.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                  {followUpTasks.length}
+                </span>
+              )}
+            </button>
+            
+            {/* Notification Dropdown */}
+            {isNotificationDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 max-h-96 overflow-y-auto">
+                <div className="p-3 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-800 text-xs">Notifications</h3>
+                  <div className="mt-2 space-y-2">
+                    {/* Today's Follow-up Tasks */}
+                    {(() => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0); // Start of today
+                      
+                      const todayTasks = followUpTasks.filter(task => {
+                        const taskDate = new Date(task.scheduledDate);
+                        taskDate.setHours(0, 0, 0, 0); // Start of task day
+                        return taskDate.getTime() === today.getTime();
+                      });
+                      
+                      return todayTasks.length > 0 ? (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            <span className="text-xs font-medium text-amber-700">Today's Follow-ups</span>
+                          </div>
+                          {todayTasks.slice(0, 3).map((task, index) => (
+                            <div key={task.id} className="text-xs text-slate-600 mb-1">
+                              • {task.taskTitle} ({new Date(task.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })})
+                            </div>
+                          ))}
+                          {todayTasks.length > 3 && (
+                            <div className="text-xs text-amber-600 font-medium">
+                              +{todayTasks.length - 3} more...
+                            </div>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
+                    
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-slate-600">Outreach Sent:</span>
+                      <span className="text-xs font-medium text-indigo-600">{outreachCount}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {KPIS.map((kpi, idx) => (
-          <GlassCard key={idx} className="p-5" hoverEffect>
-            <div className="flex items-center gap-4">
-              <div className={`${kpi.bg} p-3 rounded-xl`}>
-                <kpi.icon className={`w-6 h-6 ${kpi.color}`} />
-              </div>
-              <div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">{kpi.label}</p>
-                <p className="text-2xl font-bold text-slate-800">{kpi.value}</p>
-              </div>
-            </div>
-          </GlassCard>
-        ))}
-      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Object.entries(KPIS).map(([key, kpi]) => (
+                <GlassCard 
+                  key={key} 
+                  className={`p-6 flex flex-col justify-between hover:scale-[1.02] transition-transform duration-300 group overflow-hidden relative ${kpi.isPremium ? 'border-none shadow-indigo-200 shadow-xl' : ''}`}
+                >
+                    {kpi.isPremium && (
+                      <div className={`absolute inset-0 ${kpi.bg} z-0 opacity-100`}></div>
+                    )}
+                    <div className="relative z-10">
+                        <div className="flex justify-between items-start mb-4">
+                            <div className={`p-3 rounded-2xl ${kpi.isPremium ? 'bg-white/20' : kpi.bg} shadow-sm group-hover:rotate-12 transition-transform duration-500`}>
+                                <kpi.icon className={`w-5 h-5 ${kpi.isPremium ? 'text-white' : kpi.color}`} />
+                            </div>
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1 ${kpi.isPremium ? 'bg-white/20' : 'bg-slate-50'} rounded-full border ${kpi.isPremium ? 'border-white/20' : 'border-slate-100'}`}>
+                                <span className={`text-[10px] font-bold ${kpi.isPremium ? 'text-white' : 'text-slate-600'}`}>{kpi.percentage}</span>
+                                <TrendingUp className={`w-3 h-3 ${kpi.isPremium ? 'text-white' : 'text-emerald-500'}`} />
+                            </div>
+                        </div>
+                        <div className="flex justify-between items-center mb-1">
+                          <h3 className={`text-sm font-bold ${kpi.isPremium ? 'text-white/80' : 'text-slate-500'} uppercase tracking-widest`}>{kpi.label}</h3>
+                          {kpi.toggle}
+                        </div>
+                        <div className={`text-4xl font-bold ${kpi.isPremium ? 'text-white' : 'text-slate-800'} tracking-tighter`}>{kpi.value}</div>
+                    </div>
+                </GlassCard>
+            ))}</div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <GlassCard className="lg:col-span-2 p-6 flex flex-col">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-              <Clock className="w-5 h-5 text-indigo-500" /> Lead Velocity
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <GlassCard className="lg:col-span-2 p-5 flex flex-col">
+          <div className="flex justify-between items-center mb-5">
+            <h2 className="font-bold text-slate-800 text-base flex items-center gap-2">
+              <Clock className="w-4 h-4 text-indigo-500" /> Conversion Rate
             </h2>
             <select className="bg-slate-50 border-none rounded-lg text-xs font-bold text-slate-500 px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/10">
               <option>Last 7 Days</option>
               <option>Last 30 Days</option>
             </select>
           </div>
-          <div className="flex-1 w-full min-h-[300px]">
+          <div className="flex-1 w-full min-h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
                 <defs>
@@ -254,11 +529,12 @@ const Dashboard: React.FC = () => {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8', fontWeight: 500}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#cbd5e1'}} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8', fontWeight: 500}} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#cbd5e1'}} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
                   itemStyle={{ color: '#6366f1', fontWeight: 600 }}
+                  formatter={(value) => [`${value}%`, 'Conversion Rate']}
                 />
                 <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
               </AreaChart>
@@ -266,37 +542,37 @@ const Dashboard: React.FC = () => {
           </div>
         </GlassCard>
 
-        {/* Refined Unclosed Leads Card to match the user's provided screenshot style */}
-        <GlassCard className="p-8 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border-none">
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-6 h-6 rounded-full border-2 border-emerald-400/80 flex items-center justify-center">
-              <Check className="w-3.5 h-3.5 text-emerald-500" strokeWidth={3} />
+        {/* Refined Unclosed Leads Card to match user's provided screenshot style */}
+        <GlassCard className="p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border-none">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-5 h-5 rounded-full border-2 border-emerald-400/80 flex items-center justify-center">
+              <Check className="w-3 h-3 text-emerald-500" strokeWidth={3} />
             </div>
-            <h2 className="font-bold text-[#1e293b] text-xl tracking-tight">Unclosed Leads</h2>
+            <h2 className="font-bold text-[#1e293b] text-lg tracking-tight">Unclosed Leads</h2>
           </div>
           
-          <div className="space-y-8">
+          <div className="space-y-6">
             {unclosedLeads.slice(0, 4).map((lead) => (
               <div 
                 key={lead.id} 
-                className="flex items-center gap-4 group cursor-pointer"
+                className="flex items-center gap-3 group cursor-pointer"
                 onClick={() => navigate('/outreach')}
               >
-                <div className="w-12 h-12 rounded-full bg-[#f1f5f9] flex items-center justify-center text-slate-500 font-medium text-lg shrink-0 transition-colors group-hover:bg-indigo-50 group-hover:text-indigo-600">
+                <div className="w-10 h-10 rounded-full bg-[#f1f5f9] flex items-center justify-center text-slate-500 font-medium text-sm shrink-0 transition-colors group-hover:bg-indigo-50 group-hover:text-indigo-600">
                   {lead.business.name.substring(0, 1)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[15px] font-bold text-[#1e293b] truncate leading-tight">{lead.business.name}</p>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                  <p className="text-xs font-bold text-[#1e293b] truncate leading-tight">{lead.business.name}</p>
+                  <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">
                     {lead.status} • {lead.lastContact.toUpperCase()}
                   </p>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-200 transition-colors group-hover:text-indigo-400 shrink-0" strokeWidth={2} />
+                <ChevronRight className="w-3 h-3 text-slate-200 transition-colors group-hover:text-indigo-400 shrink-0" strokeWidth={2} />
               </div>
             ))}
             
             {unclosedLeads.length === 0 && (
-              <div className="py-10 text-center text-slate-300 text-sm font-medium">
+              <div className="py-8 text-center text-slate-300 text-xs font-medium">
                 No active leads found.
               </div>
             )}
@@ -304,7 +580,7 @@ const Dashboard: React.FC = () => {
           
           <button 
             onClick={() => navigate('/outreach')}
-            className="w-full mt-10 py-4 bg-[#f8fafc] text-[#475569] rounded-2xl text-[13px] font-bold hover:bg-slate-100 transition-all border border-slate-100/50"
+            className="w-full mt-8 py-3 bg-[#f8fafc] text-[#475569] rounded-2xl text-xs font-bold hover:bg-slate-100 transition-all border border-slate-100/50"
           >
             View All Activity
           </button>
@@ -312,45 +588,74 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* CALENDAR VIEW SECTION */}
-      <div className="pt-4 pb-10">
-        <GlassCard className="p-8 border-none">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      <div className="pt-4 pb-8">
+        <GlassCard className="p-6 border-none">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
-              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                <CalendarIcon className="w-5 h-5 text-indigo-500" /> Engagement Calendar
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <CalendarIcon className="w-4 h-4 text-indigo-500" /> Follow Up Calendar
               </h2>
-              <p className="text-sm text-slate-400 font-medium mt-1">Manage your outreach follow-ups and meetings.</p>
+              <p className="text-xs text-slate-400 font-medium mt-1">Manage your outreach follow-ups and meetings.</p>
             </div>
             <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
-              <button className="p-1.5 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-slate-800"><ChevronLeft className="w-4 h-4" /></button>
-              <span className="text-xs font-bold text-slate-700 px-2 min-w-[120px] text-center uppercase tracking-widest">October 2024</span>
-              <button className="p-1.5 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-slate-800"><ChevronRight className="w-4 h-4" /></button>
+              <button 
+                onClick={() => changeMonth(-1)}
+                className="p-1.5 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-slate-800"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-bold text-slate-700 px-2 min-w-[100px] text-center uppercase tracking-widest">
+                {formatMonthYear(currentMonth)}
+              </span>
+              <button 
+                onClick={() => changeMonth(1)}
+                className="p-1.5 hover:bg-white rounded-lg transition-all text-slate-400 hover:text-slate-800"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Calendar Grid */}
             <div className="lg:col-span-3 overflow-x-auto">
-              <div className="grid grid-cols-7 gap-px bg-slate-100 rounded-2xl overflow-hidden border border-slate-100 shadow-sm min-w-[600px]">
+              <div className="grid grid-cols-7 gap-px bg-slate-100 rounded-2xl overflow-hidden border border-slate-100 shadow-sm min-w-[500px]">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="bg-slate-50 py-3 text-center text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">{day}</div>
+                  <div key={day} className="bg-slate-50 py-2 text-center text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">{day}</div>
                 ))}
-                {calendarDays.map(day => {
-                  const hasFollowUp = UPCOMING_FOLLOWUPS.some(f => f.date === day);
-                  const isToday = day === currentDay;
+                {calendarDays.map((day, index) => {
+                  if (day === null) {
+                    return <div key={`empty-${index}`} className="bg-slate-50 min-h-[80px] p-2"></div>;
+                  }
+                  
+                  const tasksForDay = getTasksForDate(day);
+                  const isToday = isCurrentMonth && day === currentDay;
                   
                   return (
-                    <div key={day} className={`bg-white min-h-[100px] p-2 relative group transition-colors hover:bg-indigo-50/30 ${isToday ? 'bg-indigo-50/10' : ''}`}>
-                      <span className={`text-[10px] font-bold ${isToday ? 'bg-indigo-600 text-white w-5 h-5 flex items-center justify-center rounded-full' : 'text-slate-400'}`}>
+                    <div key={day} className={`bg-white min-h-[80px] p-2 relative group transition-colors hover:bg-indigo-50/30 ${isToday ? 'bg-indigo-50/10' : ''}`}>
+                      <span className={`text-[8px] font-bold ${isToday ? 'bg-indigo-600 text-white w-4 h-4 flex items-center justify-center rounded-full' : 'text-slate-400'}`}>
                         {day}
                       </span>
-                      {hasFollowUp && (
-                        <div className="mt-2 space-y-1">
-                          {UPCOMING_FOLLOWUPS.filter(f => f.date === day).map((f, i) => (
-                            <div key={i} className={`text-[9px] p-1.5 rounded-md font-bold truncate ${f.status === 'High' ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'}`}>
-                              {f.company}
+                      {tasksForDay.length > 0 && (
+                        <div className="mt-1 space-y-1">
+                          {tasksForDay.slice(0, 2).map((task, i) => (
+                            <div 
+                              key={i} 
+                              className={`text-[7px] p-1 rounded-md font-bold truncate cursor-pointer hover:opacity-80 transition-opacity ${
+                                task.priority === 'High' ? 'bg-rose-50 text-rose-600 border border-rose-100' : 
+                                task.priority === 'Medium' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                'bg-indigo-50 text-indigo-600 border border-indigo-100'
+                              }`}
+                              title={task.taskTitle}
+                            >
+                              {task.taskTitle}
                             </div>
                           ))}
+                          {tasksForDay.length > 2 && (
+                            <div className="text-[6px] text-slate-400 font-medium text-center">
+                              +{tasksForDay.length - 2} more
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -360,31 +665,130 @@ const Dashboard: React.FC = () => {
             </div>
 
             {/* Task Breakdown Sidebar */}
-            <div className="space-y-6">
+            <div className="space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5" /> Upcoming Tasks
+                <Clock className="w-3 h-3" /> Follow Up Tasks
               </h3>
-              <div className="space-y-3">
-                {UPCOMING_FOLLOWUPS.map((task, i) => (
-                  <div key={i} className="bg-white border border-slate-100 p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow group cursor-pointer">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${task.status === 'Critical' ? 'bg-rose-100 text-rose-600' : task.status === 'High' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
-                        {task.status}
+              <div className="space-y-2">
+                {followUpTasks.slice(0, 5).map((task) => (
+                  <div 
+                    key={task.id} 
+                    className={`bg-white border border-slate-100 p-3 rounded-xl shadow-sm hover:shadow-md transition-all group cursor-pointer relative overflow-hidden ${
+                      completingTaskIds.has(task.id) ? 'opacity-50 scale-95' : ''
+                    }`}
+                  >
+                    <button
+                      onClick={() => handleDeleteTask(task.id)}
+                      className="absolute top-2 left-2 w-4 h-4 rounded-full border-2 border-slate-300 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-emerald-500 hover:border-emerald-500 hover:text-white"
+                    >
+                      <Check className="w-2.5 h-2.5 text-slate-400 group-hover:text-white" />
+                    </button>
+                    
+                    <div className="flex justify-between items-start mb-2 pl-7">
+                      <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${
+                        task.priority === 'High' ? 'bg-rose-100 text-rose-600' : 
+                        task.priority === 'Medium' ? 'bg-amber-100 text-amber-600' : 
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {task.priority}
                       </span>
-                      <span className="text-[10px] text-slate-400 font-bold">{task.time}</span>
+                      <span className="text-[8px] text-slate-400 font-bold">
+                        {new Date(task.scheduledDate).toLocaleDateString()}
+                      </span>
                     </div>
-                    <p className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{task.company}</p>
-                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Follow-up via Outreach Hub</p>
+                    <p className="text-xs font-bold text-slate-700 group-hover:text-indigo-600 transition-colors pl-7">
+                      {task.taskTitle}
+                    </p>
+                    <p className="text-[8px] text-slate-400 mt-1 font-medium pl-7">
+                      {task.lead?.business?.name || 'General Task'}
+                    </p>
                   </div>
                 ))}
+                
+                {followUpTasks.length === 0 && (
+                  <div className="text-center py-6 text-slate-400 text-xs">
+                    No follow-up tasks scheduled
+                  </div>
+                )}
               </div>
-              <button className="w-full py-3 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
-                <PlusCircle className="w-4 h-4" /> Add Task
+              <button 
+                onClick={() => setIsAddTaskModalOpen(true)}
+                className="w-full py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+              >
+                <PlusCircle className="w-3.5 h-3.5" /> Add Task
               </button>
             </div>
           </div>
         </GlassCard>
       </div>
+
+      {/* Add Task Modal */}
+      {isAddTaskModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
+                <PlusCircle className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Add Follow Up Task</h3>
+                <p className="text-xs text-slate-500">Create a new follow-up task</p>
+              </div>
+            </div>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Task Title</label>
+                <input
+                  type="text"
+                  value={newTask.title}
+                  onChange={(e) => setNewTask(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                  placeholder="Enter task title..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={newTask.date}
+                  onChange={(e) => setNewTask(prev => ({ ...prev, date: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Priority</label>
+                <select
+                  value={newTask.priority}
+                  onChange={(e) => setNewTask(prev => ({ ...prev, priority: e.target.value as 'Low' | 'Medium' | 'High' }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                >
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-5 justify-end">
+              <button
+                onClick={() => setIsAddTaskModalOpen(false)}
+                className="px-3 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddTask}
+                className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-lg shadow-indigo-500/20 text-sm"
+              >
+                Add Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
