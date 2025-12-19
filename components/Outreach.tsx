@@ -650,7 +650,7 @@ const Outreach: React.FC = () => {
                             target="_blank"
                             rel="noopener noreferrer"
                             className={`
-                                relative h-24 p-6 rounded-2xl flex flex-col justify-between overflow-hidden group transition-all duration-500 hover:scale-[1.02]
+                                relative h-32 p-10 rounded-2xl flex flex-col justify-between overflow-hidden group transition-all duration-500 hover:scale-[1.02]
                                 bg-gradient-to-br ${getSocialGradient(social.platform)} text-white border-none
                             `}
                         >
@@ -660,15 +660,15 @@ const Outreach: React.FC = () => {
                             </div>
 
                             <div className="flex justify-between items-start relative z-10">
-                                <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30">
+                                <div className="p-4 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30">
                                     {getSocialIcon(social.platform)}
                                 </div>
-                                <ExternalLink className="w-5 h-5 opacity-50 group-hover:opacity-100 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
+                                <ExternalLink className="w-6 h-6 opacity-50 group-hover:opacity-100 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
                             </div>
                             <div className="relative z-10">
-                                <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">{social.platform}</p>
-                                <p className="text-xl font-black tracking-tight mt-1">{social.handle}</p>
-                                <p className="text-xs text-white/80 mt-1 truncate max-w-[120px]">{social.url}</p>
+                                <p className="text-[11px] font-black uppercase tracking-[0.3em] opacity-60">{social.platform}</p>
+                        
+                                <p className="text-sm text-white/80 mt-2 truncate max-w-[140px]">{social.url}</p>
                             </div>
                         </a>
                     ))}

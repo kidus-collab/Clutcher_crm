@@ -22,7 +22,7 @@ import {
   Loader2,
   RotateCcw
 } from 'lucide-react';
-import { getDeals, getOffers, getActivities, logActivity, getConsolidatedDeals, syncConsolidatedDeals, createDeal, getLeads, supabase } from '../lib/database/supabase';
+import { getDeals, getOffers, getActivities, logActivity, getConsolidatedDeals, syncConsolidatedDeals, createDeal, createDirectDeal, getLeads, supabase } from '../lib/database/supabase';
 
 const Pipeline: React.FC = () => {
   const [viewMode, setViewMode] = useState<'board' | 'timeline'>('board');
@@ -46,22 +46,22 @@ const Pipeline: React.FC = () => {
   const [exchangeRate, setExchangeRate] = useState<number>(120); // Default fallback
   const [rateLoading, setRateLoading] = useState(false);
 
-  // Generate random estimated close date within 1-4 weeks from now
+  // Generate estimated close date (date.now + 1 day)
   const generateEstCloseDate = (createdAt?: string) => {
-    if (!createdAt) {
-      // If no creation date, generate random date within 1-4 weeks
-      const daysFromNow = Math.floor(Math.random() * 28) + 7; // 7-35 days
-      const estDate = new Date();
-      estDate.setDate(estDate.getDate() + daysFromNow);
-      return estDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    }
-    
-    // If creation date exists, estimate 2-4 weeks from creation
-    const created = new Date(createdAt);
-    const daysFromCreation = Math.floor(Math.random() * 14) + 14; // 14-28 days
-    const estDate = new Date(created);
-    estDate.setDate(estDate.getDate() + daysFromCreation);
+    const estDate = new Date();
+    estDate.setDate(estDate.getDate() + 1);
     return estDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  // Get next step based on deal stage
+  const getNextStep = (stage: string) => {
+    switch(stage) {
+      case 'Qualified': return 'Cold Approach lead';
+      case 'Contacted': return 'Followup Proposal';
+      case 'Proposal': return 'Follow up until close';
+      case 'Won': return 'Revisit win in Closed leads archive';
+      default: return 'Follow up on proposal';
+    }
   };
 
   // Fetch exchange rate
@@ -140,21 +140,16 @@ const Pipeline: React.FC = () => {
     try {
       const valueUSD = getValueForSave();
       
-      // Create deal in database
-      const success = await createDeal(
-        availableLeads[0]?.id || '', // Use first available lead ID or empty
+      // Create direct deal in database
+      const deal = await createDirectDeal(
         newDealTitle,
         newDealCompany,
-        valueUSD
+        valueUSD,
+        newDealStage,
+        newDealProbability
       );
       
-      if (success) {
-        // Update lead status if we have a lead ID
-        if (availableLeads[0]?.id) {
-          const { updateLeadStatus } = await import('../lib/database/supabase');
-          await updateLeadStatus(availableLeads[0].id, 'New');
-        }
-        
+      if (deal) {
         // Refresh deals
         const fetchData = async () => {
           setLoading(true);
@@ -229,7 +224,6 @@ const Pipeline: React.FC = () => {
     switch(stage) {
       case 'New': return 'Qualified';
       case 'Qualified': return 'Contacted (Outreach)';
-      case 'Contacted': return 'Contacted (Outreach)';
       case 'Proposal': return 'Proposal (Follow up)';
       case 'Won': return 'Won / Closed';
       default: return stage;
@@ -282,13 +276,13 @@ const Pipeline: React.FC = () => {
               onClick={() => toggleCurrency('USD')}
               className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${currency === 'USD' ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
             >
-              USD ($)
+              $
             </button>
             <button
               onClick={() => toggleCurrency('ETB')}
               className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${currency === 'ETB' ? 'bg-indigo-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
             >
-              ETB (Br)
+              Br
             </button>
           </div>
           
@@ -382,19 +376,23 @@ const Pipeline: React.FC = () => {
                             <MoreVertical className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5 text-slate-300 opacity-0 group-hover/card:opacity-100 transition-opacity cursor-pointer hover:text-indigo-600" />
                          </div>
                          <h4 className="font-bold text-slate-800 text-xs sm:text-sm mb-0.5 leading-snug truncate">{deal.title}</h4>
-                         <div className="text-sm sm:text-base font-bold text-slate-700 mb-2 sm:mb-3 tracking-tight flex items-baseline gap-0.5">
-                            <span className="text-[9px] sm:text-[10px] text-slate-400 font-normal">$</span>
-                            {currency === 'ETB' ? getDisplayValue(deal.value) : deal.value.toLocaleString()}
-                            {currency === 'ETB' && <span className="text-[9px] sm:text-[10px] text-slate-400 font-normal"> Br</span>}
-                         </div>
+                         {stage === 'Won' && (
+                           <div className="text-sm sm:text-base font-bold text-slate-700 mb-2 sm:mb-3 tracking-tight flex items-baseline gap-0.5">
+                              <span className="text-[9px] sm:text-[10px] text-slate-400 font-normal">$</span>
+                             {currency === 'ETB' ? getDisplayValue(deal.value) : deal.value.toLocaleString()}
+                             {currency === 'ETB' && <span className="text-[9px] sm:text-[10px] text-slate-400 font-normal"> Br</span>}
+                           </div>
+                         )}
                          <div className="flex justify-between items-center border-t border-slate-100/50 pt-2 sm:pt-2.5 mt-auto">
-                            <div className="flex items-center gap-1.5 sm:space-x-2">
-                              <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold">{deal.probability}% Prob.</span>
-                            </div>
-                            <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold bg-slate-100/50 px-1 sm:px-1.5 py-0.5 rounded flex items-center gap-1">
-                               <Clock className="w-1.5 h-1.5 sm:w-2 sm:h-2 md:w-2.5 md:h-2.5 lg:w-3 lg:h-3" /> {deal.lastContact}
-                            </span>
-                         </div>
+                            {stage !== 'Won' && (
+                             <div className="flex items-center gap-1.5 sm:space-x-2">
+                               <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold">{deal.probability}% Prob.</span>
+                             </div>
+                            )}
+                           <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold bg-slate-100/50 px-1 sm:px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <Clock className="w-1.5 h-1.5 sm:w-2 sm:h-2 md:w-2.5 md:h-2.5 lg:w-3 lg:h-3" /> {deal.lastContact}
+                           </span>
+                        </div>
                       </GlassCard>
                     ))}
                     {stageDeals.length === 0 && (
@@ -468,7 +466,9 @@ const Pipeline: React.FC = () => {
                                        </div>
                                      </div>
                                      <div className="text-right">
-                                       <span className="block text-xs sm:text-sm font-medium text-slate-700">{currency === 'ETB' ? 'Br' : '$'}{currency === 'ETB' ? getDisplayValue(deal.value) : deal.value.toLocaleString()}</span>
+                                       {stage === 'Won' && (
+                                         <span className="block text-xs sm:text-sm font-medium text-slate-700">{currency === 'ETB' ? 'Br' : '$'}{currency === 'ETB' ? getDisplayValue(deal.value) : deal.value.toLocaleString()}</span>
+                                       )}
                                        <span className="text-[9px] sm:text-[10px] text-slate-400">{deal.lastContact}</span>
                                      </div>
                                    </div>
@@ -489,6 +489,110 @@ const Pipeline: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* NEW DEAL MODAL */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-slate-900/20 transition-opacity"
+            onClick={() => setShowCreateModal(false)}
+          ></div>
+          
+          {/* Modal Panel */}
+          <div className="relative w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 p-6 m-4">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Create New Deal</h3>
+                <p className="text-sm text-slate-500 mt-1">Add a new deal directly to the pipeline</p>
+              </div>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Deal Title</label>
+                <input
+                  type="text"
+                  value={newDealTitle}
+                  onChange={(e) => setNewDealTitle(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder="Enter deal title"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Company Name</label>
+                <input
+                  type="text"
+                  value={newDealCompany}
+                  onChange={(e) => setNewDealCompany(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder="Enter company name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Deal Value</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={newDealValue}
+                    onChange={(e) => setNewDealValue(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    placeholder="Enter deal value"
+                  />
+                  <select
+                    value={currency}
+                    onChange={(e) => toggleCurrency(e.target.value as 'USD' | 'ETB')}
+                    className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="ETB">ETB</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Stage</label>
+                <select
+                  value={newDealStage}
+                  onChange={(e) => setNewDealStage(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                >
+                  <option value="New">New</option>
+                  <option value="Qualified">Qualified</option>
+                  <option value="Contacted">Contacted</option>
+                  <option value="Proposal">Proposal</option>
+                  <option value="Won">Won</option>
+                  <option value="Lost">Lost</option>
+                </select>
+              </div>
+
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="px-4 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateDeal}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Create Deal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DEAL DETAIL SLIDE-OVER DRAWER */}
       {selectedDeal && (
@@ -631,7 +735,7 @@ const Pipeline: React.FC = () => {
                         <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
                           <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-amber-400"></div>
                           <div>
-                            <p className="text-sm font-medium text-slate-800">Follow up on proposal</p>
+                            <p className="text-sm font-medium text-slate-800">{getNextStep(selectedDeal.stage)}</p>
                             <p className="text-xs text-slate-500 mt-1">Est. close: {generateEstCloseDate(selectedDeal.createdAt)}</p>
                           </div>
                         </div>

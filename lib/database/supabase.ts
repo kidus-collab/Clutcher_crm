@@ -439,6 +439,46 @@ export async function createDeal(
 }
 
 /**
+ * Create a direct deal (not from a lead)
+ */
+export async function createDirectDeal(
+  title: string,
+  company: string,
+  value: number,
+  stage: Deal['stage'] = 'New',
+  probability: number = 10
+): Promise<Deal | null> {
+  if (!supabase) return null;
+  
+  const { data, error } = await supabase
+    .from('deals')
+    .insert({
+      title,
+      company,
+      value,
+      stage,
+      last_contact: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  
+  if (error) {
+    console.error('Error creating direct deal:', error);
+    return null;
+  }
+  
+  return {
+    id: data.id,
+    title: data.title,
+    company: data.company,
+    value: data.value,
+    stage: data.stage,
+    lastContact: data.last_contact || 'Just now',
+    probability: data.probability,
+  };
+}
+
+/**
  * Get all deals
  */
 export async function getDeals(): Promise<Deal[]> {
@@ -1246,7 +1286,7 @@ export async function getConsolidatedDeals(): Promise<Deal[]> {
           leadId: lead.id,
           title: `New Lead: ${business.name || 'Unknown Company'}`,
           company: business.name || 'Unknown Company',
-          value: 0, // Default value, can be updated later
+          value: 0, // $0 for New stage
           stage: 'New',
           lastContact: lead.last_contact || 'Never',
           probability: 10, // Default probability for new leads
@@ -1307,7 +1347,7 @@ export async function getConsolidatedDeals(): Promise<Deal[]> {
           leadId: lead.id || track.lead_id,
           title: `${stage}: ${business.name || 'Unknown Company'}`,
           company: business.name || 'Unknown Company',
-          value: 0, // Default value
+          value: 0, // $0 for Qualified/Contacted stages
           stage: stage,
           lastContact: track.timestamp || 'Never',
           probability: stage === 'Contacted' ? 25 : 20, // Higher probability for contacted
@@ -1352,7 +1392,7 @@ export async function getConsolidatedDeals(): Promise<Deal[]> {
           leadId: lead.id || task.lead_id,
           title: `Proposal: ${business.name || 'Unknown Company'}`,
           company: business.name || 'Unknown Company',
-          value: 0, // Default value
+          value: 0, // $0 for Proposal stage
           stage: 'Proposal',
           lastContact: task.scheduled_date || 'Never',
           probability: 35, // Higher probability for proposals
