@@ -84,24 +84,21 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile = false }) => {
             className={`
               flex items-center px-4 py-3.5 rounded-xl transition-all duration-300 group relative overflow-hidden
               ${isActive(item.path) 
-                ? 'bg-white/10 text-white shadow-lg shadow-black/5' 
-                : 'hover:bg-white/5 hover:text-white'}
+                ? 'bg-gradient-to-r from-indigo-600/20 to-transparent text-white shadow-[0_0_15px_rgba(99,102,241,0.2)] border-l-4 border-indigo-500' 
+                : 'text-slate-400 hover:bg-white/5 hover:text-white transition-colors'}
             `}
           >
-            {isActive(item.path) && (
-              <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 rounded-l-none" />
-            )}
-            <item.icon className={`w-5 h-5 transition-colors ${isActive(item.path) ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'}`} strokeWidth={1.5} />
-            <span className="hidden lg:block ml-3.5 text-sm font-medium tracking-wide">{item.label}</span>
+            <item.icon className={`w-5 h-5 transition-colors ${isActive(item.path) ? 'text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]' : 'text-slate-500 group-hover:text-slate-300'}`} strokeWidth={isActive(item.path) ? 2 : 1.5} />
+            <span className={`hidden lg:block ml-3.5 text-sm tracking-wide ${isActive(item.path) ? 'font-bold' : 'font-medium'}`}>{item.label}</span>
           </Link>
         ))}
       </nav>
       
       {/* Footer */}
       <div className="p-6 hidden lg:block">
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-white/5">
-            <p className="text-xs text-slate-400 font-medium">Clutcher v1.0</p>
-            <p className="text-[10px] text-slate-500 mt-1">Simple. Functional.</p>
+        <div className="bg-white/5 rounded-2xl p-4 border-none shadow-neo-sm">
+            <p className="text-xs text-white font-bold opacity-80">Clutcher v1.0</p>
+            <p className="text-[10px] text-slate-400 mt-1 font-medium italic">Simple. Functional.</p>
         </div>
       </div>
     </aside>

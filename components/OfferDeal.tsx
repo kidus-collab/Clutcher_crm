@@ -230,7 +230,7 @@ const OfferDeal: React.FC = () => {
       if (deal.leadId) {
           try {
             console.log('DEBUG: Attempting to add to closed_leads table');
-            const { data: closedData, error: closedError } = await supabase
+            const { data: closedData, error: closedError } = await supabase!
               .from('closed_leads')
               .insert({
                 lead_id: deal.leadId,
@@ -271,7 +271,7 @@ const OfferDeal: React.FC = () => {
 
       // NOW DELETE FROM OFFERS TABLE - This is the key fix!
       console.log('DEBUG: Attempting to delete from offers table');
-      const { data: deleteData, error: deleteError } = await supabase
+      const { data: deleteData, error: deleteError } = await supabase!
         .from('offers')
         .delete()
         .eq('id', deal.id);
@@ -382,34 +382,63 @@ const OfferDeal: React.FC = () => {
       const channel = selectedChannels[deal.id] || defaultChannel;
 
       if (!amountUSD || amountUSD <= 0) return;
-
+ 
       try {
-          const dealSuccess = await createDeal(
-              deal.leadId,
-              deal.title,
-              deal.company,
-              amountUSD
-          );
-
-          if (dealSuccess) {
-              const offerSuccess = await updateOfferStage(deal.id, 'Won');
-
-              if (offerSuccess) {
-                   if (deal.leadId) {
-                      await updateLeadStatus(deal.leadId, 'Converted');
-                  }
-
-                  setOfferDeals(prev => prev.filter(d => d.id !== deal.id));
-                  
-                  setNotificationType('success');
-                  setNotification(`Converted to deal: ${deal.company} - $${amountUSD.toLocaleString()}`);
-                  setTimeout(() => setNotification(null), 4000);
+          // Route to external channel based on selection
+          let externalUrl = '';
+          
+          if (channel === 'email' && deal.leadEmail) {
+              externalUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(deal.leadEmail)}&su=${encodeURIComponent(`Offer: ${deal.title}`)}&body=${encodeURIComponent(`We'd like to offer you: ${deal.title}. Contract value: $${amountUSD}. Please let us know if you're interested.`)}`;
+          } else if (channel === 'website' && deal.leadWebsite) {
+              externalUrl = deal.leadWebsite.startsWith('http') ? deal.leadWebsite : `https://${deal.leadWebsite}`;
+          } else if (channel !== 'email' && channel !== 'website') {
+              // Find the social media URL for the selected platform
+              const socialProfile = deal.leadSocials?.find((social: any) => social.platform === channel);
+              if (socialProfile?.url) {
+                  externalUrl = socialProfile.url;
               }
           }
+          
+          // Open external channel if we have a URL
+          if (externalUrl) {
+              window.open(externalUrl, '_blank');
+          }
+          
+          // Update the offer table to track the channel used
+          if (!supabase) {
+              console.error('Supabase client not initialized');
+              return;
+          }
+          const { error: updateError } = await supabase!
+              .from('offers')
+              .update({
+                  contact_channel: channel,
+                  contact_url: externalUrl,
+                  last_contacted: new Date().toISOString()
+              })
+              .eq('id', deal.id);
+          
+          if (updateError) {
+              console.error('Failed to update offer with channel info:', updateError);
+          }
+          
+          // Update offer stage to 'Contacted' to reflect that we've reached out
+          const offerSuccess = await updateOfferStage(deal.id, 'Contacted');
+ 
+          if (offerSuccess) {
+              // Update lead status to reflect contact
+              if (deal.leadId) {
+                  await updateLeadStatus(deal.leadId, 'Contacted');
+              }
+              
+              setNotificationType('success');
+              setNotification(`Offer sent via ${channel}: ${deal.company} - $${amountUSD.toLocaleString()}`);
+              setTimeout(() => setNotification(null), 4000);
+          }
       } catch (error) {
-          console.error('Error converting offer to deal:', error);
+          console.error('Error sending offer:', error);
           setNotificationType('archive');
-          setNotification(`Failed to convert ${deal.company} to deal.`);
+          setNotification(`Failed to send offer via ${channel}.`);
           setTimeout(() => setNotification(null), 4000);
       }
   };
@@ -423,7 +452,7 @@ const OfferDeal: React.FC = () => {
                 <FileSignature className="w-6 h-6 text-indigo-500" /> 
                 Offer Management
              </h1>
-             <p className="text-slate-500 text-sm mt-1">Set value and send closing offers to converted leads.</p>
+             <p className="text-slate-500 text-sm mt-1">Set value and send closing offers to warm leads.</p>
              
              {/* Live Forex Rate Display */}
              <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg w-fit border border-emerald-100">
@@ -433,7 +462,7 @@ const OfferDeal: React.FC = () => {
          </div>
 
          {/* Currency Toggle */}
-         <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+         <div className="flex bg-white p-1 rounded-xl border border-slate-200">
              <button 
                 onClick={() => toggleCurrency('USD')}
                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currency === 'USD' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
@@ -453,7 +482,7 @@ const OfferDeal: React.FC = () => {
        <div className="mb-6">
          <button
            onClick={() => setShowCreateOfferModal(true)}
-           className="px-6 py-3 bg-purple-600 text-white rounded-xl font-bold shadow-lg shadow-purple-500/20 hover:bg-purple-700 hover:shadow-purple-500/30 transition-all flex items-center gap-2"
+           className="px-6 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition-all flex items-center gap-2"
          >
            <PlusCircle className="w-5 h-5" /> Create New Offer
          </button>
@@ -473,14 +502,14 @@ const OfferDeal: React.FC = () => {
                   return (
                     <GlassCard key={deal.id} className="p-0 flex flex-col group hover:scale-[1.01] transition-transform overflow-visible">
                         {/* Card Header and Body same as before mostly, update Input */}
-                        <div className="p-6 border-b border-slate-100 bg-gradient-to-br from-white/60 to-white/30 relative">
+                        <div className="p-6 border-b border-slate-200 bg-white relative">
                             {/* ... (Header code) ... */}
                             {/* Copying header code for completeness or referencing existing... */}
                             {/* Let's minimize duplication by assuming I replace entire return block or relevant parts. */}
                             {/* Wait, I need to output the FULL component or correct chunks. */}
                             {/* I will use the header code from before */}
                             <div className="flex justify-between items-start mb-4">
-                                <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-lg border border-indigo-100 shadow-sm">
+                                <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-lg border border-indigo-200">
                                     {deal.company.substring(0, 1)}
                                 </div>
                                 <div className="relative">
@@ -495,7 +524,7 @@ const OfferDeal: React.FC = () => {
                                     </button>
                                     
                                     {activeMenu === deal.id && (
-                                        <div ref={menuRef} className="absolute right-0 top-10 w-48 bg-white rounded-xl shadow-xl border border-slate-100 py-2 z-20 animate-fade-in origin-top-right overflow-hidden">
+                                        <div ref={menuRef} className="absolute right-0 top-10 w-48 bg-white rounded-xl border border-slate-200 py-2 z-20 animate-fade-in origin-top-right overflow-hidden">
                                             <button 
                                                 onClick={() => handleRestore(deal)}
                                                 className="w-full text-left px-4 py-3 text-sm text-slate-600 hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-3 transition-colors border-b border-slate-50"
@@ -518,7 +547,7 @@ const OfferDeal: React.FC = () => {
                             </p>
                         </div>
 
-                        <div className="p-6 flex-1 bg-white/40 space-y-6">
+                        <div className="p-6 flex-1 bg-slate-50 space-y-6">
                              
                             {/* Value Input */}
                             <div>
@@ -529,18 +558,18 @@ const OfferDeal: React.FC = () => {
                                     <div className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within/input:text-indigo-500 flex items-center justify-center font-bold text-xs">
                                         {currency === 'USD' ? '$' : 'Br'}
                                     </div>
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
                                         placeholder="0"
                                         value={displayValue}
                                         onChange={(e) => handleInputChange(deal.id, e.target.value)}
-                                        className="w-full bg-white/60 border border-slate-200 rounded-xl py-3 pl-9 pr-4 text-slate-700 font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                                        className="w-full bg-white border border-slate-200 rounded-xl py-3 pl-9 pr-4 text-slate-700 font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
                                     />
                                 </div>
                             </div>
 
                             {/* Probability & Rating */}
-                            <div className="bg-slate-50/50 p-3 rounded-lg border border-slate-100 space-y-2">
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
                                 <div className="flex justify-between items-center">
                                     <span className="text-xs text-slate-500 font-medium">Win Probability</span>
                                     <span className="text-sm font-bold text-emerald-600">{deal.probability}%</span>
@@ -608,10 +637,10 @@ const OfferDeal: React.FC = () => {
                         </div>
 
                         {/* Card Footer */}
-                        <div className="p-4 bg-white/60 border-t border-slate-100 flex flex-col gap-3">
+                        <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col gap-3">
                             <button
                                 onClick={() => handleSendOffer(deal)}
-                                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 active:scale-95"
+                                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 active:scale-95"
                             >
                                 <Send className="w-4 h-4" /> Send offer 
                             </button>
@@ -641,7 +670,7 @@ const OfferDeal: React.FC = () => {
 
       {/* Notification Toast */}
       {notification && (
-          <div className="fixed bottom-10 right-10 bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right z-50 max-w-md">
+          <div className="fixed bottom-10 right-10 bg-slate-900 text-white px-6 py-4 rounded-xl flex items-center gap-3 animate-slide-in-right z-50 max-w-md">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${notificationType === 'success' ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`}>
                  {notificationType === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Archive className="w-5 h-5 text-rose-400" />}
               </div>
@@ -655,7 +684,7 @@ const OfferDeal: React.FC = () => {
       {/* Create Offer Modal */}
       {showCreateOfferModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+          <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
                 <PlusCircle className="w-6 h-6 text-purple-600" />
@@ -784,7 +813,7 @@ const OfferDeal: React.FC = () => {
                     setTimeout(() => setNotification(null), 4000);
                   }
                 }}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium shadow-lg shadow-purple-500/20"
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
               >
                 Create Offer
               </button>

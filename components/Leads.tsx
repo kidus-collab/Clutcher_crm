@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import GlassCard from './ui/GlassCard';
+import { motion } from 'framer-motion';
+import Skeleton from './ui/Skeleton';
 import { 
   Search, 
   Filter, 
@@ -114,22 +116,8 @@ const Leads: React.FC = () => {
   const [filterTimeRange, setFilterTimeRange] = useState('');
   const [filterOutcome, setFilterOutcome] = useState('');
 
-  useEffect(() => {
-    fetchLeads();
-    
-    // Also check for updates when window gains focus (user navigates back to this tab)
-    const handleFocus = () => {
-      fetchLeads();
-    };
-    
-    window.addEventListener('focus', handleFocus);
-    
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, []);
-
   const fetchLeads = async () => {
+    const startTime = Date.now();
     setLoading(true);
     
     // Fetch all datasets
@@ -151,8 +139,29 @@ const Leads: React.FC = () => {
     // Combine all leads for filtering
     const allLeads = [...activeRegularLeads, ...closedLeads, ...outreachTrackingLeads, ...offersLeads];
     setLeads(allLeads);
+    
+    // Artificial Delay
+    const elapsedTime = Date.now() - startTime;
+    const remainingTime = Math.max(0, 800 - elapsedTime);
+    await new Promise(r => setTimeout(r, remainingTime));
+    
     setLoading(false);
   };
+
+  useEffect(() => {
+    fetchLeads();
+    
+    // Also check for updates when window gains focus (user navigates back to this tab)
+    const handleFocus = () => {
+      fetchLeads();
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   // Filter logic
   const filteredLeads = leads.filter(lead => {
@@ -451,7 +460,12 @@ const Leads: React.FC = () => {
 
 
   return (
-    <div className="h-screen flex flex-col p-3 sm:p-4 lg:p-10 overflow-hidden max-w-[1600px] mx-auto">
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      className="h-screen flex flex-col p-3 sm:p-4 lg:p-10 overflow-hidden max-w-[1600px] mx-auto"
+    >
       {/* Header Section */}
       <div className="shrink-0 mb-4 sm:mb-6">
         <div className="flex flex-col md:flex-row justify-between items-start gap-3 sm:gap-4">
@@ -460,7 +474,7 @@ const Leads: React.FC = () => {
             <p className="text-slate-500 text-xs sm:text-sm mt-1">Advanced prospect intelligence & pipeline oversight.</p>
             <button
                 onClick={() => setShowAddLeadModal(true)}
-                className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-purple-700 transition-all mt-3 sm:mt-4 text-sm sm:text-base"
+                className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold hover:from-indigo-600 hover:to-purple-700 transition-all mt-3 sm:mt-4 text-sm sm:text-base border-none"
             >
                 <PlusCircle className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 lg:w-6 lg:h-6" />
                 <span>Add Lead</span>
@@ -474,13 +488,13 @@ const Leads: React.FC = () => {
                  value={searchQuery}
                  onChange={(e) => setSearchQuery(e.target.value)}
                  placeholder="Search prospects..."
-                 className="pl-9 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 bg-white/60 backdrop-blur-sm border border-slate-200 rounded-lg sm:rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-32 sm:w-48 transition-all"
+                 className="pl-9 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 bg-white border border-slate-200 rounded-lg sm:rounded-xl text-sm text-slate-700 focus:outline-none w-32 sm:w-48 transition-all"
                />
              </div>
              <div className="relative">
                <button
                  onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                 className="p-1.5 sm:p-2 bg-white border border-slate-200 rounded-lg sm:rounded-xl text-slate-600 hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-1.5 sm:gap-2"
+                 className="p-1.5 sm:p-2 bg-white border border-slate-200 rounded-lg sm:rounded-xl text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5 sm:gap-2"
                >
                  <Filter className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5" />
                  <span className="text-[10px] sm:text-xs font-medium">Filter</span>
@@ -488,7 +502,7 @@ const Leads: React.FC = () => {
                
                {/* Filter Dropdown */}
                {showFilterDropdown && (
-                 <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-2xl border border-slate-100 z-50 p-4">
+                 <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl border border-slate-200 z-50 p-4">
                    <h4 className="font-bold text-slate-800 text-sm mb-3">Filter Leads</h4>
                    
                    {/* Status Filter */}
@@ -599,8 +613,46 @@ const Leads: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden relative">
         {loading && (
-          <div className="flex-1 flex justify-center items-center">
-              <Loader2 className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 lg:w-10 lg:h-10 text-indigo-500 animate-spin" />
+          <div className="flex-1 overflow-hidden">
+              {activeTab === 'board' && (
+                <div className="h-full overflow-x-auto pb-6 flex gap-6 px-1">
+                  {[1, 2, 3, 4].map(col => (
+                    <div key={col} className="w-[320px] flex flex-col h-full space-y-4">
+                      <Skeleton className="h-12 w-full rounded-xl" />
+                      <div className="space-y-4">
+                        {[1, 2, 3].map(card => (
+                          <div key={card} className="bg-white p-5 rounded-2xl border border-slate-200 h-32 space-y-3">
+                            <div className="flex justify-between"><Skeleton variant="circular" className="w-10 h-10" /><Skeleton className="w-4 h-6" /></div>
+                            <Skeleton className="h-4 w-3/4" />
+                            <Skeleton className="h-3 w-1/2 mt-auto" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {activeTab === 'table' && (
+                <div className="space-y-4 p-2">
+                  <div className="flex gap-4 px-6 py-4"><Skeleton className="h-4 w-1/4" /><Skeleton className="h-4 w-1/6" /><Skeleton className="h-4 w-1/6" /><Skeleton className="h-4 w-1/6" /><Skeleton className="h-4 w-1/6" /></div>
+                  {[1, 2, 3, 4, 5].map(row => (
+                    <div key={row} className="bg-white p-4 rounded-2xl border border-slate-200 h-16 flex items-center gap-4">
+                      <Skeleton variant="circular" className="w-10 h-10" /><Skeleton className="h-4 flex-1" /><Skeleton className="h-4 w-20" /><Skeleton className="h-4 w-20" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {activeTab === 'analytics' && (
+                <div className="space-y-8 p-4">
+                  <div className="grid grid-cols-3 gap-6">
+                    {[1, 2, 3].map(i => <div key={i} className="h-24 bg-white rounded-2xl border border-slate-200 p-4"><Skeleton className="h-4 w-20 mb-2" /><Skeleton className="h-8 w-12" /></div>)}
+                  </div>
+                  <div className="grid grid-cols-3 gap-6">
+                    <div className="col-span-2 h-[450px] bg-white rounded-2xl border border-slate-200 p-8"><Skeleton className="h-full w-full" /></div>
+                    <div className="space-y-6"><div className="h-48 bg-indigo-500/10 rounded-2xl border border-indigo-200 p-6"><Skeleton className="h-full w-full" /></div><div className="h-48 bg-white rounded-2xl border border-slate-200 p-6"><Skeleton className="h-full w-full" /></div></div>
+                  </div>
+                </div>
+              )}
           </div>
         )}
 
@@ -614,7 +666,7 @@ const Leads: React.FC = () => {
                                 <div className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${getStatusColor(status)} shadow-sm`}></div>
                                 <span className="font-bold text-slate-700 text-[10px] sm:text-xs uppercase tracking-wider">{status}</span>
                             </div>
-                            <span className="bg-white/80 px-1.5 sm:px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold text-slate-500 border border-white/50">
+                            <span className="bg-white px-1.5 sm:px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold text-slate-500 border border-slate-200">
                                 {leads.length}
                             </span>
                         </div>
@@ -636,14 +688,14 @@ const Leads: React.FC = () => {
                                 return (
                                 <GlassCard
                                     key={lead.id}
-                                    className="p-3.5 sm:p-5 group relative border-l-4 hover:shadow-xl transition-all cursor-pointer overflow-visible"
+                                    className="p-3.5 sm:p-5 group relative border-l-4 hover:transition-all cursor-pointer overflow-visible"
                                     hoverEffect
                                     onClick={() => navigate(route)}
                                     style={{ borderLeftColor: COLORS[status] || 'transparent' }}
                                 >
                                     <div className="flex justify-between items-start mb-2.5 sm:mb-3">
                                         <div className="flex items-center gap-2.5 sm:gap-3">
-                                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600 font-bold text-xs sm:text-sm shadow-sm">
+                                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs sm:text-sm">
                                                 {lead.business.name.substring(0, 1)}
                                             </div>
                                             <div>
@@ -726,9 +778,9 @@ const Leads: React.FC = () => {
                        
                        return (
                       <tr key={lead.id} className="group transition-all" onClick={() => navigate(route)}>
-                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white/60 backdrop-blur-sm border-y border-l border-slate-100 rounded-l-xl sm:rounded-l-2xl group-hover:bg-white transition-all">
+                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white border-y border-l border-slate-200 rounded-l-xl sm:rounded-l-2xl group-hover:bg-slate-50 transition-all">
                           <div className="flex items-center gap-2.5 sm:gap-4">
-                             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600 font-bold text-xs sm:text-sm">
+                             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs sm:text-sm">
                                  {lead.business.name.substring(0, 1)}
                              </div>
                              <div className="min-w-0 flex-1">
@@ -737,23 +789,23 @@ const Leads: React.FC = () => {
                              </div>
                           </div>
                        </td>
-                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white/60 backdrop-blur-sm border-y border-slate-100 transition-all">
+                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white border-y border-slate-200 transition-all">
                           <span className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-bold border ${getStatusBadge(lead.status)}`}>
                             {lead.status}
                           </span>
                        </td>
-                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white/60 backdrop-blur-sm border-y border-slate-100 transition-all hidden sm:table-cell">
+                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white border-y border-slate-200 transition-all hidden sm:table-cell">
                           <span className="text-xs font-bold text-slate-700">${(lead.estimatedValue || 0).toLocaleString()}</span>
                        </td>
-                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white/60 backdrop-blur-sm border-y border-slate-100 transition-all hidden sm:table-cell text-xs font-medium text-slate-500">
+                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white border-y border-slate-200 transition-all hidden sm:table-cell text-xs font-medium text-slate-500">
                           {lead.daysInStage || 0}d
                        </td>
-                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white/60 backdrop-blur-sm border-y border-slate-100 transition-all hidden sm:table-cell">
+                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white border-y border-slate-200 transition-all hidden sm:table-cell">
                           <span className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded ${lead.outcome === 'Interested' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
                              {lead.outcome || 'Pending'}
                           </span>
                        </td>
-                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white/60 backdrop-blur-sm border-y border-r border-slate-100 rounded-r-xl sm:rounded-r-2xl transition-all text-right">
+                       <td className="px-3 sm:px-6 py-2 sm:py-4 bg-white border-y border-r border-slate-200 rounded-r-xl sm:rounded-r-2xl transition-all text-right">
                           <button className="p-1.5 sm:p-2 text-slate-300 hover:text-indigo-600">
                              <ChevronRight className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 lg:w-6 lg:h-6" />
                          </button>
@@ -828,7 +880,7 @@ const Leads: React.FC = () => {
                             <BarChart data={funnelData} margin={{ left: 20, right: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
-                                <Tooltip cursor={{fill: 'rgba(99, 102, 241, 0.05)'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} />
+                                <Tooltip cursor={{fill: 'rgba(99, 102, 241, 0.05)'}} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }} />
                                 <Bar dataKey="value" radius={[8, 8, 0, 0]} barSize={60}>
                                     {funnelData.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={entry.fill} />
@@ -841,7 +893,7 @@ const Leads: React.FC = () => {
 
                 {/* Performance KPIs Sidebar */}
                 <div className="space-y-6">
-                    <GlassCard className="p-6 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white border-none shadow-indigo-200 shadow-xl">
+                    <GlassCard className="p-6 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white border-none">
                         <div className="flex items-center gap-3 mb-4 opacity-80 uppercase text-[10px] font-bold tracking-[0.2em]">
                             <TrendingUp className="w-4 h-4" /> Growth
                         </div>
@@ -971,7 +1023,7 @@ const Leads: React.FC = () => {
       {/* Add Lead Modal */}
       {showAddLeadModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
-          <div className="bg-white rounded-lg sm:rounded-xl shadow-2xl max-w-md w-full p-4 sm:p-6">
+          <div className="bg-white rounded-lg sm:rounded-xl border border-slate-200 max-w-md w-full p-4 sm:p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center">
                 <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 lg:w-8 lg:h-8 text-indigo-600" />
@@ -1117,7 +1169,7 @@ const Leads: React.FC = () => {
               </button>
               <button
                 onClick={handleAddLead}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-lg shadow-indigo-500/20 flex items-center gap-2"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center gap-2"
               >
                 <PlusCircle className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 lg:w-6 lg:h-6" />
                 Add Lead
@@ -1130,7 +1182,7 @@ const Leads: React.FC = () => {
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-         <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+         <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full p-6">
            <div className="flex items-center gap-3 mb-4">
              <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center">
                <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 lg:w-8 lg:h-8 text-rose-600" />
@@ -1174,7 +1226,7 @@ const Leads: React.FC = () => {
          </div>
        </div>
      )}
-    </div>
+    </motion.div>
   );
 };
 

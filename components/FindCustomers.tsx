@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import GlassCard from './ui/GlassCard';
-import { Search, Globe, Mail, Phone, Linkedin, Twitter, Check, Loader2, Plus, Sparkles, AlertCircle, Trash2, Download } from 'lucide-react';
+import { motion } from 'framer-motion';
+import Skeleton from './ui/Skeleton';
+import { Search, Globe, Mail, Phone, Linkedin, Twitter, Check, Loader2, Plus, Sparkles, AlertCircle, Trash2, Download, TrendingUp } from 'lucide-react';
 import { Business } from '../types';
 import { scrapeBusinesses } from '../lib/api/scrape';
 import { saveBusiness, addToLeads, getBusinesses, getLeads } from '../lib/database/supabase';
@@ -22,6 +24,7 @@ const FindCustomers: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
     const [hasSearched, setHasSearched] = useState(false);
+    const [loading, setLoading] = useState(true);
     
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
@@ -53,6 +56,9 @@ const FindCustomers: React.FC = () => {
         
         // Check which businesses are already in leads and sync IDs
         checkExistingLeads();
+        
+        // Initial loading delay for skeleton demo
+        setTimeout(() => setLoading(false), 800);
     }, []);
 
     // Save results to localStorage whenever they change
@@ -109,10 +115,13 @@ const FindCustomers: React.FC = () => {
         if (!query.trim()) return;
         
         setIsScraping(true);
+        setLoading(true);
         setError(null);
         setResults([]);
         setHasSearched(true);
         setCurrentPage(1); // Reset to first page
+        
+        const startTime = Date.now();
         
         try {
             const response = await scrapeBusinesses({ 
@@ -132,7 +141,13 @@ const FindCustomers: React.FC = () => {
             console.error('Scrape error:', err);
             setError('Network error. Please check your connection and try again.');
         } finally {
-            setIsScraping(false);
+            // Artificial delay for smooth skeleton transition
+            const elapsedTime = Date.now() - startTime;
+            const remainingTime = Math.max(0, 800 - elapsedTime);
+            setTimeout(() => {
+                setIsScraping(false);
+                setLoading(false);
+            }, remainingTime);
         }
     };
 
@@ -296,8 +311,51 @@ const FindCustomers: React.FC = () => {
         currentPage * itemsPerPage
     );
 
+    if (loading) {
+        return (
+            <div className="p-6 lg:p-10 max-w-[1600px] mx-auto min-h-screen space-y-8">
+                <div className="space-y-2">
+                    <Skeleton className="h-10 w-64" />
+                    <Skeleton className="h-4 w-96" />
+                </div>
+                
+                <GlassCard className="p-6">
+                    <div className="flex flex-col md:flex-row gap-4">
+                        <Skeleton className="flex-1 h-32 rounded-xl" />
+                        <div className="md:w-56 space-y-3 pt-8">
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-12 w-full rounded-xl" />
+                        </div>
+                    </div>
+                </GlassCard>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {[1, 2, 3, 4, 5, 6].map(i => (
+                        <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 h-[320px] space-y-4">
+                            <div className="flex justify-between">
+                                <Skeleton variant="circular" className="w-12 h-12" />
+                                <div className="flex gap-2"><Skeleton variant="circular" className="w-6 h-6" /><Skeleton variant="circular" className="w-6 h-6" /></div>
+                            </div>
+                            <Skeleton className="h-6 w-3/4" />
+                            <Skeleton className="h-3 w-1/2" />
+                            <Skeleton className="h-12 w-full" />
+                            <div className="pt-4 border-t border-slate-100 mt-auto">
+                                <Skeleton className="h-10 w-full rounded-lg" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="p-6 lg:p-10 max-w-[1600px] mx-auto min-h-screen">
+        <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="p-6 lg:p-10 max-w-[1600px] mx-auto min-h-screen"
+        >
             <div className="mb-8">
                 <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Find Customers</h1>
                 <p className="text-slate-500 mt-1 text-sm">Use our AI agent to find businesses and scrape their contact details.</p>
@@ -317,7 +375,7 @@ const FindCustomers: React.FC = () => {
                                 }
                             }}
                             placeholder="e.g. 100 clinics in Addis Ababa, or Software companies in San Francisco..."
-                            className="w-full h-32 p-4 bg-white/50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-none font-medium text-lg text-slate-700 placeholder:text-slate-300"
+                            className="w-full h-32 p-4 bg-white border border-slate-200 rounded-xl focus:outline-none font-medium text-lg text-slate-700 placeholder:text-slate-300 transition-all focus:ring-2 focus:ring-indigo-500/20"
                         />
                         <div className="absolute top-4 right-4">
                             <Sparkles className="w-5 h-5 text-indigo-400" />
@@ -332,7 +390,7 @@ const FindCustomers: React.FC = () => {
                         <button 
                             onClick={handleScrape}
                             disabled={isScraping || !query.trim()}
-                            className="w-full py-3 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition-all shadow-lg hover:shadow-slate-900/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                            className="w-full py-3 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                         >
                             {isScraping ? (
                                 <>
@@ -415,7 +473,7 @@ const FindCustomers: React.FC = () => {
                                     </button>
 
                                     <div className="flex justify-between items-start mb-3">
-                                        <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-lg border border-indigo-100">
+                                        <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-lg">
                                             {biz.name.substring(0, 1)}
                                         </div>
                                         <div className="flex gap-2">
@@ -454,8 +512,8 @@ const FindCustomers: React.FC = () => {
                                             onClick={() => handleAddToLeads(biz)}
                                             disabled={isAdded || isAdding}
                                             className={`w-full py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center
-                                                ${isAdded 
-                                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' 
+                                                ${isAdded
+                                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
                                                     : 'bg-white border border-slate-200 text-slate-700 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50'}
                                             `}
                                         >
@@ -476,7 +534,7 @@ const FindCustomers: React.FC = () => {
                     {/* Pagination */}
                     {totalPages > 1 && (
                         <div className="flex justify-center mt-8">
-                             <Pagination className="bg-white/80 backdrop-blur-sm p-2 rounded-xl shadow-sm border border-slate-200 inline-flex w-auto">
+                             <Pagination className="bg-white p-2 rounded-xl border border-slate-200 inline-flex w-auto">
                                 <PaginationContent>
                                     <PaginationItem>
                                         <PaginationPrevious 
@@ -526,7 +584,7 @@ const FindCustomers: React.FC = () => {
                     )}
                 </div>
             )}
-        </div>
+        </motion.div>
     );
 };
 

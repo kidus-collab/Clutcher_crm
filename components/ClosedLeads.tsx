@@ -121,7 +121,7 @@ const ClosedLeads: React.FC = () => {
               <p className="text-slate-500 text-sm mt-1">Deep analysis of historical cycles and business success stories.</p>
             </div>
             
-            <div className="bg-slate-200/50 p-1 rounded-xl flex items-center backdrop-blur-md border border-slate-200/30">
+            <div className="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200">
               <button 
                 onClick={() => setActiveView('list')}
                 className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${activeView === 'list' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -149,7 +149,7 @@ const ClosedLeads: React.FC = () => {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -10 }}
             onClick={handleBack}
-            className="flex items-center gap-2 text-slate-400 hover:text-indigo-600 transition-colors font-bold text-xs uppercase tracking-widest mb-6 w-fit bg-white/50 px-4 py-2 rounded-xl border border-slate-100 backdrop-blur-sm shadow-sm"
+            className="flex items-center gap-2 text-slate-400 hover:text-indigo-600 transition-colors font-bold text-xs uppercase tracking-widest mb-6 w-fit bg-white px-4 py-2 rounded-xl border border-slate-100"
           >
             <ArrowLeft className="w-4 h-4" /> Back to Success Stories
           </motion.button>
@@ -165,7 +165,7 @@ const ClosedLeads: React.FC = () => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search archived leads..." 
-            className="pl-10 pr-4 py-2 bg-white/60 backdrop-blur-sm border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full transition-all"
+            className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full transition-all"
           />
         </div>
       </div>
@@ -186,13 +186,13 @@ const ClosedLeads: React.FC = () => {
             >
               {/* Hero Impact Section */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  <GlassCard className="lg:col-span-8 p-10 border-none bg-gradient-to-br from-indigo-700 via-indigo-800 to-slate-900 text-white shadow-2xl relative overflow-hidden">
+                  <GlassCard className="lg:col-span-8 p-10 border-none bg-gradient-to-br from-indigo-700 via-indigo-800 to-slate-900 text-white relative overflow-hidden">
                       <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/20 rounded-full blur-3xl -mr-48 -mt-48 pointer-events-none"></div>
                       <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -ml-32 -mb-32 pointer-events-none"></div>
                       
                       <div className="relative z-10">
                         <div className="flex flex-col md:flex-row items-center gap-6 mb-10">
-                            <div className="w-20 h-20 rounded-3xl bg-white/10 backdrop-blur-xl flex items-center justify-center text-4xl font-bold border border-white/20 shadow-inner">
+                            <div className="w-20 h-20 rounded-3xl bg-white/10 flex items-center justify-center text-4xl font-bold border border-white/20">
                                 {selectedCaseStudy.business.name.substring(0, 1)}
                             </div>
                             <div className="text-center md:text-left">
@@ -227,7 +227,7 @@ const ClosedLeads: React.FC = () => {
                                 </div>
                             </div>
                             
-                            <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white/10 p-8 flex flex-col justify-between shadow-2xl">
+                            <div className="bg-white/5 rounded-3xl border border-white/10 p-8 flex flex-col justify-between">
                                 <div className="space-y-8">
                                     <div>
                                         <div className="text-5xl font-black tracking-tighter text-white mb-1">
@@ -303,7 +303,7 @@ const ClosedLeads: React.FC = () => {
                           {(selectedCaseStudy.caseStudy?.milestones || []).map((step, i) => (
                               <div key={i} className="group flex flex-col items-center text-center lg:items-start lg:text-left">
                                   <div className={`
-                                      w-20 h-20 rounded-[2.5rem] flex items-center justify-center border-[6px] border-white shadow-xl mb-8 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6
+                                      w-20 h-20 rounded-[2.5rem] flex items-center justify-center border-[6px] border-white mb-8 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6
                                       ${i === (selectedCaseStudy.caseStudy?.milestones.length || 0) - 1 ? 'bg-emerald-500 text-white animate-pulse-fast' : 'bg-indigo-600 text-white shadow-indigo-200'}
                                   `}>
                                       {i === 0 ? <Search className="w-8 h-8" /> : 
@@ -333,10 +333,10 @@ const ClosedLeads: React.FC = () => {
               className="space-y-4"
             >
                 {filteredLeads.map((lead) => (
-                    <GlassCard key={lead.id} className="p-5 group hover:bg-white/70 transition-all border-l-4 border-l-emerald-500 opacity-75">
+                    <GlassCard key={lead.id} className="p-5 group hover:bg-white transition-all border-l-4 border-l-emerald-500 opacity-75">
                         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                             <div className="flex items-center w-full md:w-1/3">
-                                <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-lg mr-4 shrink-0 shadow-inner">
+                                <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-lg mr-4 shrink-0">
                                     {lead.business.name.substring(0, 1)}
                                 </div>
                                 <div>
@@ -466,14 +466,14 @@ const ClosedLeads: React.FC = () => {
             >
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {convertedLeads.map((lead) => (
-                        <GlassCard 
-                          key={lead.id} 
-                          className="p-0 overflow-hidden group hover:shadow-2xl transition-all cursor-pointer flex flex-col border-none shadow-xl"
+                        <GlassCard
+                          key={lead.id}
+                          className="p-0 overflow-hidden group hover:shadow-lg transition-all cursor-pointer flex flex-col border-none"
                           onClick={() => setSelectedCaseStudy(lead)}
                         >
                             <div className="h-40 bg-gradient-to-br from-indigo-500 via-indigo-700 to-slate-900 p-8 flex items-end relative overflow-hidden">
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-16 -mt-16"></div>
-                                <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white font-bold text-2xl border border-white/20 relative z-10">
+                                <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center text-white font-bold text-2xl border border-white/20 relative z-10">
                                     {lead.business.name.substring(0, 1)}
                                 </div>
                             </div>

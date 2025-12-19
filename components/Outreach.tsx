@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import GlassCard from './ui/GlassCard';
+import { motion } from 'framer-motion';
+import Skeleton from './ui/Skeleton';
 import {
     Mail,
     Linkedin,
@@ -90,6 +92,9 @@ const Outreach: React.FC = () => {
   const [websiteAction, setWebsiteAction] = useState<'contact' | 'inquiry'>('contact');
   const [websiteMessage, setWebsiteMessage] = useState('');
 
+  // Email popup state
+  const [showEmailPopup, setShowEmailPopup] = useState(false);
+
   // Check scraper server status
   const checkScraperStatus = async () => {
     setScraperStatus('checking');
@@ -127,14 +132,6 @@ const Outreach: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    fetchOutreachLeads();
-    checkScraperStatus();
-    checkDbStatus();
-  }, []);
-
-
-
   // Track business interactions in Outreach page
   const trackBusinessInteraction = (leadId: string, leadName: string, action: string) => {
     const interactions = JSON.parse(localStorage.getItem('outreachInteractions') || '[]');
@@ -149,6 +146,7 @@ const Outreach: React.FC = () => {
   };
 
   const fetchOutreachLeads = async () => {
+    const startTime = Date.now();
     setLoading(true);
     
     // Fetch leads from outreach_tracking table
@@ -169,8 +167,20 @@ const Outreach: React.FC = () => {
         // Track default lead selection
         trackBusinessInteraction(trackingLeads[0].id, trackingLeads[0].business.name, 'lead_selected');
     }
+    
+    // Artificial Delay
+    const elapsedTime = Date.now() - startTime;
+    const remainingTime = Math.max(0, 800 - elapsedTime);
+    await new Promise(r => setTimeout(r, remainingTime));
+    
     setLoading(false);
   };
+
+  useEffect(() => {
+    fetchOutreachLeads();
+    checkScraperStatus();
+    checkDbStatus();
+  }, []);
 
   const activeLead = leads.find(l => l.id === selectedLeadId);
 
@@ -232,25 +242,96 @@ const Outreach: React.FC = () => {
   const handleSendEmail = async () => {
       if (!activeLead) return;
       
+      // Show email popup instead of sending directly
+      setShowEmailPopup(true);
+  };
+
+  const handleSendFromGmail = async () => {
+      if (!activeLead) return;
+      
       // Track email send action in localStorage
       const outreachActions = JSON.parse(localStorage.getItem('outreachActions') || '[]');
       outreachActions.push({
         leadId: activeLead.id,
         leadName: activeLead.business.name,
-        action: 'email_sent',
+        action: 'email_sent_via_gmail',
         subject: subject,
         timestamp: new Date().toISOString(),
         source: 'outreach_page'
       });
       localStorage.setItem('outreachActions', JSON.stringify(outreachActions));
       
-      // In a real app, this would call an email API
-      await logActivity('email', `Sent email: ${subject}`, activeLead.id);
+      // Open mailto link for Gmail
+      const mailtoUrl = `mailto:${encodeURIComponent(activeLead.business.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
+      window.location.href = mailtoUrl;
       
-      setNotificationMsg('Email logged successfully.');
+      // Log the activity
+      await logActivity('email', `Sent email via Gmail: ${subject}`, activeLead.id);
+      
+      setNotificationMsg('Opening email client...');
       setShowNotification(true);
       setTimeout(() => setShowNotification(false), 3000);
+      setShowEmailPopup(false);
   };
+
+  const handleSendFromHere = async () => {
+      if (!activeLead) return;
+      
+      // Track email send action in localStorage
+      const outreachActions = JSON.parse(localStorage.getItem('outreachActions') || '[]');
+      outreachActions.push({
+        leadId: activeLead.id,
+        leadName: activeLead.business.name,
+        action: 'email_sent_from_app',
+        subject: subject,
+        timestamp: new Date().toISOString(),
+        source: 'outreach_page'
+      });
+      localStorage.setItem('outreachActions', JSON.stringify(outreachActions));
+      
+      // In a real app, This would call an email API
+      await logActivity('email', `Sent email: ${subject}`, activeLead.id);
+      
+      // Show webhook success popup
+      setShowWebhookTimer(true);
+      setWebhookProgress(0);
+      
+      // Simulate webhook progress with 3-second timer
+      const interval = setInterval(() => {
+          setWebhookProgress(prev => {
+              if (prev >= 100) {
+                  clearInterval(interval);
+                  setShowWebhookTimer(false);
+                  
+                  // Track email send action in localStorage
+                  const webhookActions = JSON.parse(localStorage.getItem('outreachActions') || '[]');
+                  webhookActions.push({
+                    leadId: activeLead.id,
+                    leadName: activeLead.business.name,
+                    action: 'email_sent_from_app',
+                    subject: subject,
+                    timestamp: new Date().toISOString(),
+                    source: 'outreach_page'
+                  });
+                  localStorage.setItem('outreachActions', JSON.stringify(webhookActions));
+                  
+                  // Log the activity
+                  logActivity('email', `Sent email via app: ${subject}`, activeLead.id);
+                  
+                  setNotificationMsg('Email sent successfully via app!');
+                  setShowNotification(true);
+                  setTimeout(() => setShowNotification(false), 3000);
+                  setShowEmailPopup(false);
+                  return 100;
+              }
+              return prev + 3.33; // Increment by ~3.33% every 100ms for 3-second total
+          });
+      }, 100);
+  };
+
+  // Email webhook timer state
+  const [showWebhookTimer, setShowWebhookTimer] = useState(false);
+  const [webhookProgress, setWebhookProgress] = useState(0);
 
   const handleOutcome = async (newStatus: string) => {
       if (!activeLead) return;
@@ -386,10 +467,30 @@ const Outreach: React.FC = () => {
 
   if (loading) {
       return (
-          <div className="flex h-screen items-center justify-center bg-slate-50">
-             <div className="flex flex-col items-center gap-3">
-               <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-               <p className="text-slate-500 font-medium">Loading outreach profile...</p>
+          <div className="flex h-screen bg-slate-50 overflow-hidden">
+             {/* Sidebar Skeleton */}
+             <div className="w-80 border-r border-slate-200 bg-white p-6 space-y-8 flex flex-col">
+                <Skeleton className="h-8 w-48" />
+                <div className="space-y-4">
+                    {[1, 2, 3, 4, 5].map(i => (
+                        <div key={i} className="flex gap-4 items-center">
+                            <Skeleton variant="circular" className="w-10 h-10" />
+                            <div className="space-y-2 flex-1"><Skeleton className="h-4 w-full" /><Skeleton className="h-3 w-1/2" /></div>
+                        </div>
+                    ))}
+                </div>
+             </div>
+             {/* Main Portal Skeleton */}
+             <div className="flex-1 p-10 space-y-8 overflow-y-auto">
+                <div className="flex justify-between items-start">
+                    <div className="space-y-2"><Skeleton className="h-10 w-64" /><Skeleton className="h-4 w-96" /></div>
+                    <div className="flex gap-4"><Skeleton className="h-12 w-32 rounded-xl" /><Skeleton className="h-12 w-32 rounded-xl" /></div>
+                </div>
+                <GlassCard className="p-8 space-y-6">
+                    <Skeleton className="h-12 w-3/4 rounded-xl" />
+                    <Skeleton className="h-64 w-full rounded-2xl" />
+                    <div className="flex justify-end pt-4"><Skeleton className="h-12 w-48 rounded-xl" /></div>
+                </GlassCard>
              </div>
           </div>
       );
@@ -400,7 +501,7 @@ const Outreach: React.FC = () => {
       return (
           <div className="flex flex-col h-screen items-center justify-center p-6 bg-slate-50">
               <div className="text-center max-w-md">
-                  <div className="w-20 h-20 bg-white rounded-3xl shadow-sm border border-slate-200 flex items-center justify-center mx-auto mb-6 transform -rotate-3">
+                  <div className="w-20 h-20 bg-white rounded-3xl border border-slate-200 flex items-center justify-center mx-auto mb-6 transform -rotate-3">
                     <Database className="w-10 h-10 text-slate-400" />
                   </div>
                   <h2 className="text-2xl font-bold text-slate-800 mb-3">No Outreach Data</h2>
@@ -408,7 +509,7 @@ const Outreach: React.FC = () => {
                     Access your outreach history here. Start by connecting with leads in the Leads Central page.
                   </p>
                   
-                  <Link to="/leads" className="inline-flex items-center gap-2 px-8 py-3.5 bg-indigo-600 text-white rounded-xl font-bold font-medium shadow-xl shadow-indigo-500/20 hover:bg-indigo-700 hover:scale-[1.02] transition-all">
+                  <Link to="/leads" className="inline-flex items-center gap-2 px-8 py-3.5 bg-indigo-600 text-white rounded-xl font-bold font-medium hover:bg-indigo-700 hover:scale-[1.02] transition-all">
                       <ArrowRight className="w-5 h-5" />
                       Go to Leads Central
                   </Link>
@@ -430,7 +531,11 @@ const Outreach: React.FC = () => {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 min-h-screen flex flex-col max-w-[1600px] mx-auto pb-20 sm:pb-24">
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="p-4 sm:p-6 lg:p-8 min-h-screen flex flex-col max-w-[1600px] mx-auto pb-20 sm:pb-24"
+    >
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-3">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">Outreach Center</h1>
           <div className="flex items-center gap-2 sm:gap-3">
@@ -448,14 +553,14 @@ const Outreach: React.FC = () => {
             <div className="mb-3 sm:mb-4">
                 <button
                     onClick={() => setShowOutreachModal(true)}
-                    className="w-full p-2.5 sm:p-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-1.5 sm:gap-2 text-sm sm:text-base"
+                    className="w-full p-2.5 sm:p-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-1.5 sm:gap-2 text-sm sm:text-base border-none"
                 >
                     <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span>Outreach to Business</span>
                 </button>
             </div>
 
             {/* Interaction Card Stack */}
-            <div className="mb-4 p-3 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl border border-indigo-100">
+            <div className="mb-4 p-3 bg-white rounded-xl border border-slate-200">
                 <h4 className="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-2">Recent Interactions</h4>
                 <div className="space-y-2 max-h-32 overflow-y-auto">
                     {(() => {
@@ -463,7 +568,7 @@ const Outreach: React.FC = () => {
                         const recentInteractions = interactions.slice(-5).reverse(); // Last 5 interactions
                         return recentInteractions.length > 0 ? (
                             recentInteractions.map((interaction: any, index: number) => (
-                                <div key={index} className="p-2 bg-white/60 rounded-lg border border-white/40 text-xs">
+                                <div key={index} className="p-2 bg-white rounded-lg border border-slate-200 text-xs mb-2">
                                     <div className="flex items-center gap-2 mb-1">
                                         <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
                                         <span className="font-medium text-slate-700 truncate">{interaction.leadName}</span>
@@ -488,7 +593,7 @@ const Outreach: React.FC = () => {
                         // Track lead selection/click
                         trackBusinessInteraction(lead.id, lead.business.name, 'lead_clicked');
                     }}
-                    className={`p-3 sm:p-4 cursor-pointer transition-all border-l-4 group relative ${selectedLeadId === lead.id ? 'bg-white border-l-indigo-500 shadow-md' : 'bg-white/40 border-l-transparent hover:bg-white/60'}`}
+                    className={`p-3 sm:p-4 cursor-pointer transition-all border-l-4 group relative ${selectedLeadId === lead.id ? 'bg-white border-l-indigo-500 ring-2 ring-indigo-500/10' : 'bg-white/40 border-l-transparent hover:bg-white/60'}`}
                 >
                     <div className="flex justify-start items-start">
                         <h3 className="font-bold text-slate-800 text-xs sm:text-sm">{lead.business.name}</h3>
@@ -507,7 +612,7 @@ const Outreach: React.FC = () => {
              {hideSidebar && (
                  <button
                      onClick={() => setHideSidebar(false)}
-                     className="hidden lg:flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600 mb-4 transition-colors"
+                     className="hidden lg:flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600 mb-4 transition-colors p-2 rounded-lg shadow-sm"
                  >
                      <PlusCircle className="w-4 h-4" /> Show Lead Selector
                  </button>
@@ -521,7 +626,7 @@ const Outreach: React.FC = () => {
                         href={activeLead.business.website.startsWith('http') ? activeLead.business.website : `https://${activeLead.business.website}`}
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="flex items-center justify-between p-4 rounded-xl border shadow-sm transition-all group bg-white border-slate-200 hover:border-indigo-300 hover:shadow-indigo-500/10"
+                        className="flex items-center justify-between p-4 rounded-xl border border-slate-200 transition-all group bg-white hover:border-slate-300"
                     >
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-slate-50 rounded-lg group-hover:bg-indigo-50 transition-colors">
@@ -545,8 +650,8 @@ const Outreach: React.FC = () => {
                             target="_blank"
                             rel="noopener noreferrer"
                             className={`
-                                relative h-40 p-8 rounded-[2.5rem] flex flex-col justify-between overflow-hidden shadow-2xl group transition-all duration-500 hover:scale-[1.02]
-                                bg-gradient-to-br ${getSocialGradient(social.platform)} text-white
+                                relative h-24 p-6 rounded-2xl flex flex-col justify-between overflow-hidden group transition-all duration-500 hover:scale-[1.02]
+                                bg-gradient-to-br ${getSocialGradient(social.platform)} text-white border-none
                             `}
                         >
                             {/* Decorative Background Pattern */}
@@ -555,7 +660,7 @@ const Outreach: React.FC = () => {
                             </div>
 
                             <div className="flex justify-between items-start relative z-10">
-                                <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl border border-white/20">
+                                <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30">
                                     {getSocialIcon(social.platform)}
                                 </div>
                                 <ExternalLink className="w-5 h-5 opacity-50 group-hover:opacity-100 group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
@@ -563,6 +668,7 @@ const Outreach: React.FC = () => {
                             <div className="relative z-10">
                                 <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">{social.platform}</p>
                                 <p className="text-xl font-black tracking-tight mt-1">{social.handle}</p>
+                                <p className="text-xs text-white/80 mt-1 truncate max-w-[120px]">{social.url}</p>
                             </div>
                         </a>
                     ))}
@@ -572,9 +678,9 @@ const Outreach: React.FC = () => {
             {/* 2. Email Composer */}
            {activeLead.business.email ? (
                <GlassCard className="flex-col overflow-hidden p-0 relative min-h-[350px] sm:min-h-[400px] flex">
-                   <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 bg-white/50 backdrop-blur-md flex justify-between items-center">
+                   <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 bg-white flex justify-between items-center">
                        <div className="flex items-center gap-1.5 sm:gap-2 text-indigo-600 font-semibold">
-                           <Mail className="w-4 h-4 sm:w-5 sm:h-5" />
+                           <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-500 filter drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
                            <span className="">Compose Email</span>
                        </div>
                        <div className="text-[10px] sm:text-xs text-slate-400">
@@ -582,27 +688,27 @@ const Outreach: React.FC = () => {
                        </div>
                    </div>
 
-                   <div className="flex-1 p-4 sm:p-6 bg-white/30 flex flex-col gap-3 sm:gap-4">
+                   <div className="flex-1 p-4 sm:p-6 bg-slate-50 flex flex-col gap-3 sm:gap-4 m-4 sm:m-6 rounded-2xl">
                        <input
                            type="text"
                            value={subject}
                            onChange={(e) => setSubject(e.target.value)}
                            placeholder="Subject"
-                           className="w-full bg-white/50 border border-slate-200 rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-400"
+                           className="w-full bg-white border border-slate-200 rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 text-sm font-medium text-slate-700 focus:outline-none transition-all placeholder:text-slate-400"
                        />
                        
                        <textarea
                            value={emailBody}
                            onChange={(e) => setEmailBody(e.target.value)}
-                           className="flex-1 w-full bg-white/50 border border-slate-200 rounded-lg p-3 sm:p-4 resize-none outline-none text-slate-700 placeholder:text-slate-400 font-sans leading-relaxed text-sm focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
+                           className="flex-1 w-full bg-white border border-slate-200 rounded-lg p-3 sm:p-4 resize-none outline-none text-slate-700 placeholder:text-slate-400 font-sans leading-relaxed text-sm transition-all"
                            placeholder="Write your email here..."
                        />
                    </div>
 
-                   <div className="p-3 sm:p-4 bg-white/80 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-3 sm:gap-4">
+                   <div className="p-4 sm:p-6 bg-white border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 sm:gap-6">
                        <div className="flex flex-col gap-1.5 w-full md:w-auto">
-                           <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wide ml-1">Create Follow-up Task</div>
-                           <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-100/80 p-1.5 rounded-lg sm:rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all">
+                           <div className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 px-1">Create Follow-up Task</div>
+                           <div className="flex items-center gap-1.5 sm:gap-2 bg-white p-1.5 rounded-lg sm:rounded-xl border border-slate-200 transition-all">
                                <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500 ml-2" />
                                <input
                                    type="date"
@@ -610,18 +716,18 @@ const Outreach: React.FC = () => {
                                    value={followUpDate}
                                    onChange={(e) => setFollowUpDate(e.target.value)}
                                />
-                               <div className="w-px h-3.5 sm:h-4 bg-slate-300 mx-1"></div>
+                               <div className="w-px h-3.5 sm:h-4 bg-slate-200 mx-1"></div>
                                <input
                                    type="text"
                                    placeholder="Add note..."
-                                   className="bg-transparent text-[10px] sm:text-xs text-slate-700 outline-none p-1 w-32 sm:w-48 md:w-64 placeholder:text-slate-400"
+                                   className="bg-transparent text-[10px] sm:text-xs text-slate-700 outline-none p-1 w-32 sm:w-48 md:w-64 placeholder:text-slate-300 font-medium"
                                    value={followUpNote}
                                    onChange={(e) => setFollowUpNote(e.target.value)}
                                />
                                <button
                                    onClick={handleSchedule}
                                    disabled={!followUpDate}
-                                   className="ml-1 flex items-center gap-1.5 text-[10px] sm:text-xs bg-white text-indigo-600 px-2.5 sm:px-3 py-1.5 rounded-lg sm:rounded-lg font-bold shadow-sm border border-slate-200 hover:bg-indigo-50 hover:border-indigo-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                   className="ml-1 flex items-center gap-1.5 text-[10px] sm:text-xs bg-white text-indigo-600 px-3 py-1.5 rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap border border-slate-200"
                                >
                                   <PlusCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                                   <span className="">Schedule</span>
@@ -630,91 +736,94 @@ const Outreach: React.FC = () => {
                        </div>
 
                        <div className="flex gap-2 sm:gap-3 w-full md:w-auto mt-3 md:mt-0">
-                           <button className="flex-1 md:flex-none px-3 sm:px-4 py-2 sm:py-2.5 border border-slate-200 text-slate-600 rounded-lg sm:rounded-xl font-medium hover:bg-slate-50 transition-all text-sm">
-                               <span className="">Save Draft</span>
-                           </button>
                            <button
                                onClick={handleSendEmail}
-                               className="flex-1 md:flex-none px-4 sm:px-6 py-2 sm:py-2.5 bg-indigo-600 text-white rounded-lg sm:rounded-xl font-bold shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-1.5 sm:gap-2 text-sm"
+                               className="flex-1 md:flex-none px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2 text-sm border-none active:scale-[0.98]"
                            >
-                               <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="">Send Email</span>
+                               <Send className="w-4 h-4" /> <span className="">Send Email</span>
                            </button>
                        </div>
                    </div>
                </GlassCard>
            ) : (
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center text-slate-500 text-sm italic">
+                <div className="p-8 bg-white border border-slate-200 rounded-2xl text-center text-slate-400 text-sm italic font-medium">
                     No email address available for this business. Use social links or phone to contact.
                 </div>
             )}
 
              {/* 3. Outcome Actions */}
-             <GlassCard className="p-4 sm:p-6 border-t-4 border-t-indigo-500">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 sm:gap-6">
+             <GlassCard className="p-4 sm:p-8 border-none mt-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sm:gap-8">
                     {/* Rating Section */}
-                    <div className="w-full md:w-auto md:border-r md:border-slate-200 md:pr-4 sm:md:pr-6">
-                        <h3 className="text-xs sm:text-sm font-bold text-slate-800 mb-1.5 sm:mb-2">Log Interaction Quality <span className="text-rose-500">*</span></h3>
-                        <div className="flex items-center gap-1.5 sm:gap-2">
-                           <div className="flex">
+                    <div className="w-full md:w-auto md:border-r md:border-slate-100 md:pr-10">
+                        <h3 className="text-xs sm:text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Log Interaction Quality <span className="text-rose-500">*</span></h3>
+                        <div className="flex items-center gap-3">
+                           <div className="flex p-2 bg-slate-50 rounded-2xl">
                              {[1, 2, 3, 4, 5].map((star) => (
                                <button
                                    key={star}
-                                   onClick={() => updateLeadStatus(activeLead.id, activeLead.status, undefined, star).then(() => {
-                                       setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, rating: star } : l));
+                                   onClick={() => updateLeadStatus(activeLead.id, activeLead.status, undefined, star).then((result) => {
+                                       if (result.success) {
+                                           setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, rating: star } : l));
+                                       }
                                    })}
-                                   className="p-0.5 sm:p-1 hover:scale-110 transition-transform focus:outline-none"
+                                   className="p-1 sm:p-1.5 hover:scale-110 transition-transform focus:outline-none"
                                >
                                    <Star
-                                     className={`w-5 h-5 sm:w-6 sm:h-6 ${activeLead.rating && activeLead.rating >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-200 fill-slate-100'}`}
+                                     className={`w-6 h-6 sm:w-7 sm:h-7 ${activeLead.rating && activeLead.rating >= star ? 'fill-amber-400 text-amber-400 filter drop-shadow-[0_0_8px_rgba(251,191,36,0.4)]' : 'text-slate-200 fill-slate-100'}`}
                                    />
                                </button>
                              ))}
                            </div>
-                           <span className="text-[10px] sm:text-xs font-bold text-slate-400 ml-1">
+                           <span className="text-xs font-black text-indigo-600 ml-2">
                              {activeLead.rating ? `${activeLead.rating}/5 Stars` : 'Rate'}
                            </span>
                         </div>
                     </div>
 
                      <div className="flex-1 w-full">
-                         <h3 className="text-xs sm:text-sm font-bold text-slate-800 mb-1.5 sm:mb-2">Set Outcome Status <span className="text-rose-500">*</span></h3>
-                         <div className="flex flex-col gap-2.5 sm:gap-3">
-                             <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                         <h3 className="text-xs sm:text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Set Outcome Status <span className="text-rose-500">*</span></h3>
+                         <div className="flex flex-col gap-4">
+                             <div className="flex flex-wrap gap-4">
                                   <button
                                      onClick={() => {
-                                         updateLeadStatus(activeLead.id, activeLead.status, 'Bad Fit').then(() => {
-                                             setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, outcome: 'Bad Fit' } : l));
+                                         updateLeadStatus(activeLead.id, activeLead.status, 'Bad Fit').then((result) => {
+                                             if (result.success) {
+                                                 setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, outcome: 'Bad Fit' } : l));
+                                             }
                                          });
                                      }}
-                                     className={`flex-1 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold border transition-all flex items-center justify-center gap-1.5
+                                     className={`flex-1 px-4 py-3 rounded-xl text-xs font-bold border border-slate-200 transition-all flex items-center justify-center gap-2
                                          ${activeLead.outcome === 'Bad Fit'
-                                            ? 'bg-rose-100 border-rose-300 text-rose-700 ring-1 ring-rose-300'
-                                            : 'bg-white border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-500'}
+                                            ? 'bg-rose-50 text-rose-600'
+                                            : 'bg-white text-slate-500 hover:text-rose-500'}
                                      `}
                                   >
-                                     <Ban className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span>Bad Fit</span>
+                                     <Ban className="w-4 h-4" /> <span>Bad Fit</span>
                                   </button>
                                   <button
                                      onClick={() => {
-                                         updateLeadStatus(activeLead.id, activeLead.status, 'Good Fit' as any).then(() => {
-                                             setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, outcome: 'Good Fit' } : l));
+                                         updateLeadStatus(activeLead.id, activeLead.status, 'Good Fit').then((result) => {
+                                             if (result.success) {
+                                                 setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, outcome: 'Good Fit' } : l));
+                                             }
                                          });
                                      }}
-                                     className={`flex-1 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold border transition-all flex items-center justify-center gap-1.5
+                                     className={`flex-1 px-4 py-3 rounded-xl text-xs font-bold border border-slate-200 transition-all flex items-center justify-center gap-2
                                          ${activeLead.outcome === 'Good Fit'
-                                            ? 'bg-indigo-100 border-indigo-300 text-indigo-700 ring-1 ring-indigo-300'
-                                            : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600'}
+                                            ? 'bg-indigo-50 text-indigo-600'
+                                            : 'bg-white text-slate-500 hover:text-indigo-600'}
                                      `}
                                   >
-                                     <ThumbsUp className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span>Good Fit</span>
+                                     <ThumbsUp className="w-4 h-4" /> <span>Good Fit</span>
                                   </button>
                              </div>
                              
                              <button
                                  onClick={() => handleOutcome('Converted')}
-                                 className="w-full px-2.5 sm:px-3 py-2.5 sm:py-3 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold border transition-all flex items-center justify-center gap-1.5 sm:gap-2 bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 active:scale-[0.98]"
+                                 className="w-full px-4 py-4 rounded-2xl text-sm font-black uppercase tracking-widest border-none transition-all flex items-center justify-center gap-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 active:scale-[0.98]"
                              >
-                                 <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span>Convert to deal</span>
+                                 <ArrowRight className="w-5 h-5" /> <span>Convert to deal</span>
                              </button>
                          </div>
                      </div>
@@ -725,47 +834,47 @@ const Outreach: React.FC = () => {
 
       {/* Offer Modal */}
       {showOfferModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
-              <div className="bg-white rounded-lg sm:rounded-xl shadow-2xl max-w-md w-full p-4 sm:p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                      <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
-                          <PlusCircle className="w-6 h-6 text-purple-600" />
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <GlassCard className="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-8 scrollbar-hide">
+                  <div className="flex items-center gap-4 mb-8">
+                      <div className="w-14 h-14 rounded-2xl bg-purple-50 flex items-center justify-center">
+                          <PlusCircle className="w-8 h-8 text-purple-600" />
                       </div>
                       <div>
-                          <h3 className="text-lg font-bold text-slate-800">Create Offer</h3>
-                          <p className="text-sm text-slate-500">Create an offer for {activeLead?.business.name}</p>
+                          <h3 className="text-xl font-black text-slate-800 tracking-tight">Create Offer</h3>
+                          <p className="text-sm text-slate-400 font-medium">Create an offer for {activeLead?.business.name}</p>
                       </div>
                   </div>
                   
-                  <div className="space-y-4">
-                      <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">Offer Title</label>
+                  <div className="space-y-5">
+                      <div className="space-y-1.5 px-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Offer Title</label>
                           <input
                               type="text"
                               value={offerTitle}
                               onChange={(e) => setOfferTitle(e.target.value)}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none font-medium"
                               placeholder="e.g., Senior Developer Position"
                           />
                       </div>
                       
-                      <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">Contract Value ($)</label>
+                      <div className="space-y-1.5 px-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contract Value ($)</label>
                           <input
                               type="number"
                               value={offerValue}
                               onChange={(e) => setOfferValue(e.target.value)}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none font-medium"
                               placeholder="e.g., 75000"
                           />
                       </div>
                       
-                      <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">Stage</label>
+                      <div className="space-y-1.5 px-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Stage</label>
                           <select
                               value={offerStage}
                               onChange={(e) => setOfferStage(e.target.value as any)}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none font-medium appearance-none"
                           >
                               <option value="Proposal">Proposal</option>
                               <option value="Qualified">Qualified</option>
@@ -775,22 +884,22 @@ const Outreach: React.FC = () => {
                           </select>
                       </div>
                       
-                      <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">Win Probability (%)</label>
+                      <div className="space-y-1.5 px-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Win Probability (%)</label>
                           <input
                               type="number"
                               value={offerProbability}
                               onChange={(e) => setOfferProbability(parseInt(e.target.value))}
                               min="0"
                               max="100"
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none font-medium"
                           />
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">Quality Rating (1-5)</label>
-                              <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg px-3 py-2">
+                          <div className="space-y-1.5 px-1">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Rating (1-5)</label>
+                              <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-4 py-3 font-medium">
                                  <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
                                  <input
                                       type="number"
@@ -798,17 +907,17 @@ const Outreach: React.FC = () => {
                                       onChange={(e) => setOfferRating(Math.min(5, Math.max(1, parseInt(e.target.value) || 1)))}
                                       min="1"
                                       max="5"
-                                      className="w-full focus:outline-none"
+                                      className="w-full bg-transparent focus:outline-none"
                                   />
                               </div>
                           </div>
                           
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">Outcome Status</label>
+                          <div className="space-y-1.5 px-1">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Outcome Status</label>
                               <select
                                   value={offerOutcome}
                                   onChange={(e) => setOfferOutcome(e.target.value)}
-                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none font-medium appearance-none"
                               >
                                   <option value="Interested">Interested</option>
                                   <option value="Good Fit">Good Fit</option>
@@ -819,10 +928,10 @@ const Outreach: React.FC = () => {
                       </div>
                   </div>
                   
-                  <div className="flex gap-3 mt-6 justify-end">
+                  <div className="flex gap-4 mt-10 justify-end">
                       <button
                           onClick={() => setShowOfferModal(false)}
-                          className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                          className="px-6 py-3 text-slate-500 font-bold bg-white rounded-xl border border-slate-200 transition-all"
                       >
                           Cancel
                       </button>
@@ -838,14 +947,14 @@ const Outreach: React.FC = () => {
                                   offerProbability
                               );
                               
-                              if (result.duplicate) {
+                              if ((result as any).duplicate) {
                                   alert('An offer already exists for this lead!');
                                   return;
                               }
                               
-                              if (result.success) {
+                              if ((result as any).success) {
                                   // Update lead status with Rating & Outcome, and move to Negotiations
-                                  await updateLeadStatus(activeLead.id, 'Negotiations', offerOutcome as any, offerRating);
+                                  await updateLeadStatus(activeLead.id, 'Negotiations', offerOutcome, offerRating);
                                   
                                   // DELETE from outreach_tracking as requested
                                   const deleteSuccess = await deleteOutreachTracking(activeLead.id);
@@ -872,223 +981,105 @@ const Outreach: React.FC = () => {
                               
                               setShowOfferModal(false);
                           }}
-                          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium shadow-lg shadow-purple-500/20"
+                          className="px-8 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-black uppercase tracking-widest hover:from-purple-700 hover:to-indigo-700 transition-all active:scale-95"
                       >
                           Create Offer
                       </button>
                   </div>
-              </div>
+              </GlassCard>
           </div>
       )}
 
       {/* Success Notification */}
       {showNotification && (
-          <div className="fixed bottom-10 right-10 bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right z-50">
-              <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                 <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+          <div className="fixed bottom-10 right-10 bg-white p-6 rounded-2xl border border-slate-200 flex items-center gap-4 animate-slide-in-right z-50">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+                 <CheckCircle2 className="w-6 h-6 text-emerald-500" />
               </div>
               <div>
-                  <h4 className="font-bold text-sm">Success</h4>
-                  <p className="text-xs text-slate-400">{notificationMsg}</p>
+                  <h4 className="font-bold text-sm text-slate-800">Success</h4>
+                  <p className="text-xs text-slate-400 font-medium">{notificationMsg}</p>
               </div>
           </div>
       )}
 
       {/* Duplicate Warning */}
       {showDuplicateWarning && (
-          <div className="fixed top-10 right-10 bg-amber-500 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right z-50">
-              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-                 <AlertTriangle className="w-5 h-5 text-white" />
+          <div className="fixed top-10 right-10 bg-white p-6 rounded-2xl border border-slate-200 border-l-4 border-l-amber-500 flex items-center gap-4 animate-slide-in-right z-50">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+                 <AlertTriangle className="w-6 h-6 text-amber-500" />
               </div>
               <div>
-                  <h4 className="font-bold text-sm">Already Exists</h4>
-                  <p className="text-xs text-white/90">{duplicateLeadName} is already in the outreach tracking list</p>
+                  <h4 className="font-bold text-sm text-slate-800">Already Exists</h4>
+                  <p className="text-xs text-slate-400 font-medium">{duplicateLeadName} is already tracked</p>
               </div>
           </div>
       )}
 
       {/* Outreach Tracking Modal */}
       {showOutreachModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
-              <div className="bg-white rounded-lg sm:rounded-xl shadow-2xl max-w-md w-full p-4 sm:p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                      <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center">
-                          <Send className="w-6 h-6 text-indigo-600" />
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <GlassCard className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full p-8 overflow-hidden">
+                  <div className="flex items-center gap-4 mb-8">
+                      <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center">
+                          <Send className="w-8 h-8 text-indigo-600" />
                       </div>
                       <div>
-                          <h3 className="text-lg font-bold text-slate-800">Outreach to Business</h3>
-                          <p className="text-sm text-slate-500">Log outreach activity for {activeLead?.business.name}</p>
+                          <h3 className="text-xl font-black text-slate-800 tracking-tight">Outreach Portal</h3>
+                          <p className="text-sm text-slate-400 font-medium">Log activity for {activeLead?.business.name}</p>
                       </div>
                   </div>
                   
                   <div className="space-y-6">
-                      {/* Email Outreach Form */}
-                      {outreachType === 'email' && (
-                          <div className="space-y-4 bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-100">
-                              <div className="flex items-center gap-3 mb-4">
-                                  <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-                                      <Mail className="w-6 h-6 text-blue-600" />
-                                  </div>
-                                  <div>
-                                      <h4 className="text-lg font-bold text-slate-800">Email Outreach</h4>
-                                      <p className="text-sm text-slate-500">Send a professional email to {activeLead?.business.name}</p>
-                                  </div>
-                              </div>
-                              
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">Email Subject</label>
-                                  <input
-                                      type="text"
-                                      value={emailSubject}
-                                      onChange={(e) => setEmailSubject(e.target.value)}
-                                      className="w-full px-4 py-3 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white/80 backdrop-blur-sm"
-                                      placeholder="Enter email subject..."
-                                  />
-                              </div>
-                              
-                              <div>
-                                   <label className="block text-sm font-medium text-slate-700 mb-2">Email Body</label>
-                                   <textarea
-                                       value={outreachEmailBody}
-                                       onChange={(e) => setOutreachEmailBody(e.target.value)}
-                                       className="w-full px-4 py-3 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white/80 backdrop-blur-sm resize-none"
-                                       rows={4}
-                                       placeholder="Compose your email message..."
-                                   />
-                               </div>
-                          </div>
-                      )}
+                      {/* Outreach Type Selector */}
+                      <div className="flex p-1 bg-slate-50 rounded-2xl">
+                        {(['email', 'phone', 'social', 'website'] as const).map((type) => (
+                           <button
+                             key={type}
+                             onClick={() => setOutreachType(type)}
+                             className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${outreachType === type ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                           >
+                             {type}
+                           </button>
+                        ))}
+                      </div>
 
-                      {/* Phone Outreach Form */}
-                      {outreachType === 'phone' && (
-                          <div className="space-y-4 bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border border-green-100">
-                              <div className="flex items-center gap-3 mb-4">
-                                  <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-                                      <Phone className="w-6 h-6 text-green-600" />
-                                  </div>
-                                  <div>
-                                      <h4 className="text-lg font-bold text-slate-800">Phone Call</h4>
-                                      <p className="text-sm text-slate-500">Log a phone call with {activeLead?.business.name}</p>
-                                  </div>
-                              </div>
-                              
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">Call Notes</label>
-                                  <textarea
-                                      value={callNotes}
-                                      onChange={(e) => setCallNotes(e.target.value)}
-                                      className="w-full px-4 py-3 border border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white/80 backdrop-blur-sm resize-none"
-                                      rows={4}
-                                      placeholder="Describe the phone call..."
-                                  />
-                              </div>
-                          </div>
-                      )}
-
-                      {/* Social Media Outreach Form */}
-                      {outreachType === 'social' && (
-                          <div className="space-y-4 bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-xl border border-purple-100">
-                              <div className="flex items-center gap-3 mb-4">
-                                  <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
-                                      <MessageCircle className="w-6 h-6 text-purple-600" />
-                                  </div>
-                                  <div>
-                                      <h4 className="text-lg font-bold text-slate-800">Social Media Outreach</h4>
-                                      <p className="text-sm text-slate-500">Connect on social media with {activeLead?.business.name}</p>
-                                  </div>
-                              </div>
-                              
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">Select Platform</label>
-                                  <select
-                                      value={socialPlatform}
-                                      onChange={(e) => setSocialPlatform(e.target.value as any)}
-                                      className="w-full px-4 py-3 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white/80 backdrop-blur-sm"
-                                  >
-                                      <option value="linkedin">LinkedIn</option>
-                                      <option value="twitter">Twitter</option>
-                                      <option value="tiktok">TikTok</option>
-                                      <option value="youtube">YouTube</option>
-                                      <option value="instagram">Instagram</option>
-                                      <option value="telegram">Telegram</option>
-                                  </select>
-                              </div>
-                              
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">Message</label>
-                                  <textarea
-                                      value={socialMessage}
-                                      onChange={(e) => setSocialMessage(e.target.value)}
-                                      className="w-full px-4 py-3 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white/80 backdrop-blur-sm resize-none"
-                                      rows={4}
-                                      placeholder="Compose your social media message..."
-                                  />
-                              </div>
-                          </div>
-                      )}
-
-                      {/* Website Outreach Form */}
-                      {outreachType === 'website' && (
-                          <div className="space-y-4 bg-gradient-to-br from-orange-50 to-amber-50 p-6 rounded-xl border border-orange-100">
-                              <div className="flex items-center gap-3 mb-4">
-                                  <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
-                                      <Globe className="w-6 h-6 text-orange-600" />
-                                  </div>
-                                  <div>
-                                      <h4 className="text-lg font-bold text-slate-800">Website Contact</h4>
-                                      <p className="text-sm text-slate-500">Contact through website for {activeLead?.business.name}</p>
-                                  </div>
-                              </div>
-                              
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">Action Type</label>
-                                  <select
-                                      value={websiteAction}
-                                      onChange={(e) => setWebsiteAction(e.target.value as any)}
-                                      className="w-full px-4 py-3 border border-orange-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white/80 backdrop-blur-sm"
-                                  >
-                                      <option value="contact">General Contact</option>
-                                      <option value="inquiry">Business Inquiry</option>
-                                  </select>
-                              </div>
-                              
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">Message</label>
-                                  <textarea
-                                      value={websiteMessage}
-                                      onChange={(e) => setWebsiteMessage(e.target.value)}
-                                      className="w-full px-4 py-3 border border-orange-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white/80 backdrop-blur-sm resize-none"
-                                      rows={4}
-                                      placeholder="Describe your website contact..."
-                                  />
-                              </div>
-                          </div>
-                      )}
+                      <div className="space-y-4">
+                        <textarea
+                            value={outreachNotes}
+                            onChange={(e) => setOutreachNotes(e.target.value)}
+                            className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none font-medium placeholder:text-slate-300 min-h-[120px]"
+                            placeholder={`Describe your ${outreachType} outreach...`}
+                        />
+                        
+                        <div className="space-y-1.5 px-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Follow-up Date (Optional)</label>
+                          <input
+                              type="date"
+                              value={outreachDate}
+                              onChange={(e) => setOutreachDate(e.target.value)}
+                              className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none font-medium"
+                          />
+                        </div>
+                      </div>
                   </div>
                   
-                  <div className="flex gap-3 mt-6 justify-end">
+                  <div className="flex gap-4 mt-10 justify-end">
                       <button
                           onClick={() => {
                               setShowOutreachModal(false);
                               setOutreachType('email');
                               setOutreachNotes('');
                               setOutreachDate('');
-                              setEmailSubject('');
-                              setOutreachEmailBody('');
-                              setSocialPlatform('linkedin');
-                              setSocialMessage('');
-                              setCallNotes('');
-                              setWebsiteAction('contact');
-                              setWebsiteMessage('');
                           }}
-                          className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                          className="px-6 py-3 text-slate-500 font-bold bg-white rounded-xl border border-slate-200 transition-all"
                       >
                           Cancel
                       </button>
                       <button
                           onClick={async () => {
                               if (!activeLead || !outreachType || !outreachNotes) return;
-                                                            // Add entry to outreach_tracking table
+                              
                                const trackingResult = await logOutreachTracking(
                                  activeLead.id,
                                  activeLead.business.name,
@@ -1101,12 +1092,12 @@ const Outreach: React.FC = () => {
                                  'outreach_page'
                                );
                                
-                               if (trackingResult.duplicate) {
+                               if ((trackingResult as any).duplicate) {
                                  alert('This lead is already in the outreach tracking list!');
                                  return;
                                }
                                
-                               if (!trackingResult.success) {
+                               if (!((trackingResult as any).success)) {
                                  setNotificationMsg('Failed to track outreach. Please try again.');
                                  setShowNotification(true);
                                  setTimeout(() => setShowNotification(false), 5000);
@@ -1150,18 +1141,78 @@ const Outreach: React.FC = () => {
                               setOutreachNotes('');
                               setOutreachDate('');
                           }}
-                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-lg shadow-indigo-500/20"
+                          className="px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-black uppercase tracking-widest hover:from-indigo-700 hover:to-purple-700 transition-all active:scale-95"
                       >
-                          Log Outreach
+                          Log Activity
                       </button>
                   </div>
-              </div>
+              </GlassCard>
           </div>
       )}
-    </div>
+      {/* Email Send Popup Modal */}
+      {showEmailPopup && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-8">
+            <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center">
+                    <Mail className="w-8 h-8 text-indigo-600" />
+                </div>
+                <div>
+                    <h3 className="text-xl font-black text-slate-800 tracking-tight">Send Email</h3>
+                    <p className="text-sm text-slate-400 font-medium">Choose how you'd like to send your email to {activeLead?.business.name}</p>
+                </div>
+            </div>
+            
+            <div className="flex gap-4 w-full">
+                <button
+                    onClick={handleSendFromGmail}
+                    className="flex-1 px-6 py-4 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-bold hover:from-red-600 hover:to-red-700 transition-all flex items-center justify-center gap-2"
+                >
+                    <Mail className="w-5 h-5" />
+                    <span>Send via Gmail</span>
+                </button>
+                <button
+                    onClick={handleSendFromHere}
+                    className="flex-1 px-6 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-bold hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2"
+                >
+                    <Send className="w-5 h-5" />
+                    <span>Send from Here</span>
+                </button>
+            </div>
+            
+            <div className="flex gap-4 w-full mt-4">
+                <button
+                    onClick={() => setShowEmailPopup(false)}
+                    className="px-6 py-3 text-slate-500 font-bold bg-white rounded-xl border border-slate-200 transition-all"
+                >
+                    Cancel
+                </button>
+            </div>
+          </div>
+        </div>
+      )}
+  
+      {/* Webhook Timer Popup */}
+      {showWebhookTimer && (
+        <div className="fixed bottom-4 left-4 bg-slate-900 text-white px-4 py-3 rounded-xl flex items-center gap-3 animate-slide-in-right z-50">
+          <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+            <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
+          </div>
+          <div>
+            <h4 className="font-bold text-sm">Sending via Webhook</h4>
+            <p className="text-xs text-slate-400">Email being sent...</p>
+            <div className="w-32 h-2 bg-slate-700 rounded-full overflow-hidden mt-2">
+              <div
+                className="h-full bg-emerald-500 rounded-full transition-all duration-3000 ease-linear"
+                style={{ width: `${webhookProgress}%` }}
+              ></div>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">{webhookProgress.toFixed(0)}%</p>
+          </div>
+        </div>
+      )}
+    </motion.div>
   );
-
-
 };
 
 export default Outreach;

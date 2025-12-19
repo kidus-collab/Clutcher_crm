@@ -403,7 +403,9 @@ export async function createDeal(
   leadId: string,
   title: string,
   company: string,
-  value: number
+  value: number,
+  stage: Deal['stage'] = 'New',
+  probability: number = 10
 ): Promise<Deal | null> {
   if (!supabase) return null;
   
@@ -414,8 +416,8 @@ export async function createDeal(
       title,
       company,
       value,
-      stage: 'New',
-      probability: 10,
+      stage,
+      probability,
     })
     .select()
     .single();
@@ -1195,4 +1197,274 @@ export async function deleteOutreachTracking(leadId: string): Promise<boolean> {
   }
   
   return true;
+}
+
+// ============================================
+// CONSOLIDATED DEALS OPERATIONS
+// ============================================
+
+/**
+ * Get consolidated deals from multiple source tables
+ * Pulls from leads, outreach_tracking, and follow_up_tasks
+ * Maps to appropriate deal stages
+ */
+export async function getConsolidatedDeals(): Promise<Deal[]> {
+  if (!supabase) return [];
+  
+  const consolidatedDeals: Deal[] = [];
+  
+  try {
+    // 1. Get leads from leads table (status: 'New')
+    const { data: leadsData, error: leadsError } = await supabase
+      .from('leads')
+      .select(`
+        *,
+        businesses (
+          id,
+          name,
+          website,
+          email,
+          phone,
+          social_profiles (
+            platform,
+            url,
+            handle
+          )
+        )
+      `)
+      .eq('status', 'New')
+      .order('created_at', { ascending: false });
+    
+    if (leadsError) {
+      console.error('Error fetching leads for deals:', leadsError);
+    } else {
+      // Map leads to deals with 'New' status
+      (leadsData || []).forEach(lead => {
+        const business = lead.businesses || {};
+        consolidatedDeals.push({
+          id: `lead_${lead.id}`,
+          leadId: lead.id,
+          title: `New Lead: ${business.name || 'Unknown Company'}`,
+          company: business.name || 'Unknown Company',
+          value: 0, // Default value, can be updated later
+          stage: 'New',
+          lastContact: lead.last_contact || 'Never',
+          probability: 10, // Default probability for new leads
+        });
+      });
+    }
+
+    // 2. Get leads from outreach_tracking table (status: 'Qualified' or 'Contacted')
+    const { data: outreachData, error: outreachError } = await supabase
+      .from('outreach_tracking')
+      .select(`
+        *,
+        leads (
+          id,
+          businesses (
+            id,
+            name,
+            website,
+            email,
+            phone,
+            social_profiles (
+              platform,
+              url,
+              handle
+            )
+          )
+        )
+      `)
+      .in('action_type', ['email_sent', 'social_clicked', 'outreach_button_clicked'])
+      .order('timestamp', { ascending: false });
+    
+    if (outreachError) {
+      console.error('Error fetching outreach tracking for deals:', outreachError);
+    } else {
+      // Map outreach tracking to deals
+      (outreachData || []).forEach(track => {
+        const lead = track.leads || {};
+        const business = lead.businesses || {};
+        
+        // Determine stage based on action type and recency
+        let stage: Deal['stage'] = 'Qualified';
+        const actionType = track.action_type;
+        const actionDetails = track.action_details || {};
+        
+        // If recent email_sent, mark as Contacted
+        if (actionType === 'email_sent' && track.timestamp) {
+          const daysSinceContact = (new Date().getTime() - new Date(track.timestamp).getTime()) / (1000 * 60 * 60 * 24);
+          stage = daysSinceContact <= 7 ? 'Contacted' : 'Qualified';
+        }
+        
+        // If social_clicked or outreach_button_clicked, mark as Qualified
+        if (actionType === 'social_clicked' || actionType === 'outreach_button_clicked') {
+          stage = 'Qualified';
+        }
+        
+        consolidatedDeals.push({
+          id: `outreach_${track.id}`,
+          leadId: lead.id || track.lead_id,
+          title: `${stage}: ${business.name || 'Unknown Company'}`,
+          company: business.name || 'Unknown Company',
+          value: 0, // Default value
+          stage: stage,
+          lastContact: track.timestamp || 'Never',
+          probability: stage === 'Contacted' ? 25 : 20, // Higher probability for contacted
+        });
+      });
+    }
+
+    // 3. Get leads from follow_up_tasks table (status: 'Proposal')
+    const { data: followUpData, error: followUpError } = await supabase
+      .from('follow_up_tasks')
+      .select(`
+        *,
+        leads (
+          id,
+          businesses (
+            id,
+            name,
+            website,
+            email,
+            phone,
+            social_profiles (
+              platform,
+              url,
+              handle
+            )
+          )
+        )
+      `)
+      .eq('status', 'Pending')
+      .order('scheduled_date', { ascending: false });
+    
+    if (followUpError) {
+      console.error('Error fetching follow-up tasks for deals:', followUpError);
+    } else {
+      // Map follow-up tasks to deals with 'Proposal' status
+      (followUpData || []).forEach(task => {
+        const lead = task.leads || {};
+        const business = lead.businesses || {};
+        
+        consolidatedDeals.push({
+          id: `followup_${task.id}`,
+          leadId: lead.id || task.lead_id,
+          title: `Proposal: ${business.name || 'Unknown Company'}`,
+          company: business.name || 'Unknown Company',
+          value: 0, // Default value
+          stage: 'Proposal',
+          lastContact: task.scheduled_date || 'Never',
+          probability: 35, // Higher probability for proposals
+        });
+      });
+    }
+
+    // 4. Get deals from offers table for 'Won'/'Lost' status (Closed deals)
+    const { data: offersData, error: offersError } = await supabase
+      .from('offers')
+      .select(`
+        *,
+        leads (
+          id,
+          businesses (
+            id,
+            name,
+            website,
+            email,
+            phone,
+            social_profiles (
+              platform,
+              url,
+              handle
+            )
+          )
+        )
+      `)
+      .in('stage', ['Won', 'Lost'])
+      .order('created_at', { ascending: false });
+    
+    if (offersError) {
+      console.error('Error fetching offers for closed deals:', offersError);
+    } else {
+      // Map offers to deals with 'Won'/'Lost' status
+      (offersData || []).forEach(offer => {
+        const lead = offer.leads || {};
+        const business = lead.businesses || {};
+        
+        consolidatedDeals.push({
+          id: `offer_${offer.id}`,
+          leadId: lead.id,
+          title: `${offer.stage}: ${business.name || 'Unknown Company'}`,
+          company: business.name || 'Unknown Company',
+          value: offer.value || 0, // Pull value from offers table
+          stage: offer.stage as Deal['stage'], // Map Won/Lost directly
+          lastContact: offer.last_contacted || offer.created_at || 'Never',
+          probability: offer.probability || 0, // Use probability from offers table
+        });
+      });
+    }
+    
+    console.log(`Consolidated ${consolidatedDeals.length} deals from all sources`);
+    return consolidatedDeals;
+    
+  } catch (error) {
+    console.error('Error in getConsolidatedDeals:', error);
+    return [];
+  }
+}
+
+/**
+ * Sync consolidated deals to the actual deals table
+ * This function can be called periodically to keep the deals table in sync
+ */
+export async function syncConsolidatedDeals(): Promise<boolean> {
+  if (!supabase) return false;
+  
+  try {
+    const consolidatedDeals = await getConsolidatedDeals();
+    
+    // Clear existing deals table
+    const { error: deleteError } = await supabase
+      .from('deals')
+      .delete()
+      .neq('id', 'dummy'); // Delete all records
+    
+    if (deleteError) {
+      console.error('Error clearing deals table:', deleteError);
+      return false;
+    }
+    
+    // Insert consolidated deals
+    if (consolidatedDeals.length > 0) {
+      const dealsToInsert = consolidatedDeals.map(deal => ({
+        id: deal.id.startsWith('lead_') || deal.id.startsWith('outreach_') || deal.id.startsWith('followup_')
+          ? undefined // Let database generate UUID for new records
+          : deal.id,
+        lead_id: deal.leadId,
+        title: deal.title,
+        company: deal.company,
+        value: deal.value,
+        stage: deal.stage,
+        probability: deal.probability,
+        last_contact: deal.lastContact === 'Never' ? null : deal.lastContact,
+      }));
+      
+      const { error: insertError } = await supabase
+        .from('deals')
+        .insert(dealsToInsert);
+      
+      if (insertError) {
+        console.error('Error inserting consolidated deals:', insertError);
+        return false;
+      }
+    }
+    
+    console.log(`Successfully synced ${consolidatedDeals.length} consolidated deals to deals table`);
+    return true;
+    
+  } catch (error) {
+    console.error('Error syncing consolidated deals:', error);
+    return false;
+  }
 }
