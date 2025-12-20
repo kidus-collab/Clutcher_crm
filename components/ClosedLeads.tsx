@@ -118,7 +118,7 @@ const ClosedLeads: React.FC = () => {
                   <CheckSquare className="w-7 h-7 text-emerald-500" /> 
                   Success Archive
               </h1>
-              <p className="text-slate-500 text-sm mt-1">Deep analysis of historical cycles and business success stories.</p>
+              <p className="text-slate-500 text-sm mt-1">success stories of converted leads to Customers</p>
             </div>
             
             <div className="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200">

@@ -342,15 +342,35 @@ const OfferDeal: React.FC = () => {
   // Helper to get actual USD value for saving
   const getValueForSave = (deal: any) => {
       const inputVal = inputValues[deal.id];
+      
+      console.log('DEBUG getValueForSave:');
+      console.log('- deal.id:', deal.id);
+      console.log('- inputValues[deal.id]:', inputVal);
+      console.log('- deal.value (from DB):', deal.value);
+      console.log('- currency:', currency);
+      console.log('- exchangeRate:', exchangeRate);
+      
       // If no input, use deal.value (which is USD)
-      if (!inputVal) return deal.value;
+      if (!inputVal) {
+          console.log('- No input value, using deal.value:', deal.value);
+          return deal.value;
+      }
       
       const numVal = parseFloat(inputVal);
+      console.log('- Parsed numVal:', numVal);
+      
       // If current mode is ETB, convert back to USD
+      let result;
       if (currency === 'ETB') {
-          return Math.round(numVal / exchangeRate);
+          result = Math.round(numVal / exchangeRate);
+          console.log('- Converting ETB to USD:', numVal, '/', exchangeRate, '=', result);
+      } else {
+          result = Math.round(numVal);
+          console.log('- Using USD value directly:', result);
       }
-      return Math.round(numVal);
+      
+      console.log('- Final getValueForSave result:', result);
+      return result;
   };
   
   // Note: getDisplayValue is no longer needed in the same way if inputs are converted on toggle,
@@ -377,12 +397,27 @@ const OfferDeal: React.FC = () => {
   const handleSendOffer = async (deal: any) => {
       const amountUSD = getValueForSave(deal);
       
+      // Debug logging
+      console.log('DEBUG: handleSendOffer called for deal:', deal.company);
+      console.log('DEBUG: getValueForSave returned:', amountUSD);
+      console.log('DEBUG: inputValues for this deal:', inputValues[deal.id]);
+      console.log('DEBUG: deal.value from database:', deal.value);
+      
       // Default to email, then website, then social
       const defaultChannel = deal.leadEmail ? 'email' : (deal.leadWebsite ? 'website' : deal.leadSocials?.[0]?.platform || 'email');
       const channel = selectedChannels[deal.id] || defaultChannel;
 
-      if (!amountUSD || amountUSD <= 0) return;
+      // Check if contract value is entered
+      if (!amountUSD || amountUSD <= 0) {
+          console.log('DEBUG: Contract value validation failed - amountUSD:', amountUSD);
+          setNotificationType('archive');
+          setNotification(`Please enter a contract value for ${deal.company} before sending the offer.`);
+          setTimeout(() => setNotification(null), 4000);
+          return;
+      }
  
+      console.log('DEBUG: Contract value validation passed - amountUSD:', amountUSD);
+
       try {
           // Route to external channel based on selection
           let externalUrl = '';
@@ -409,17 +444,30 @@ const OfferDeal: React.FC = () => {
               console.error('Supabase client not initialized');
               return;
           }
-          const { error: updateError } = await supabase!
+          
+          const updateData = {
+              contact_channel: channel,
+              contact_url: externalUrl,
+              last_contacted: new Date().toISOString(),
+              value: amountUSD
+          };
+          
+          console.log('DEBUG: Updating offer with data:', updateData);
+          console.log('DEBUG: Offer ID to update:', deal.id);
+          
+          const { data: updateResult, error: updateError } = await supabase!
               .from('offers')
-              .update({
-                  contact_channel: channel,
-                  contact_url: externalUrl,
-                  last_contacted: new Date().toISOString()
-              })
-              .eq('id', deal.id);
+              .update(updateData)
+              .eq('id', deal.id)
+              .select();
+          
+          console.log('DEBUG: Update result:', updateResult);
+          console.log('DEBUG: Update error:', updateError);
           
           if (updateError) {
               console.error('Failed to update offer with channel info:', updateError);
+          } else {
+              console.log('DEBUG: Successfully updated offer with value:', amountUSD);
           }
           
           // Update offer stage to 'Contacted' to reflect that we've reached out
@@ -580,8 +628,8 @@ const OfferDeal: React.FC = () => {
                                 <div className="flex items-center gap-1.5 pt-1">
                                     <div className="flex">
                                         {[1, 2, 3, 4, 5].map((star) => (
-                                            <Star key={star} className={`w-3 h-3 ${star <= rating ? 'text-amber-400 fill-current' : 'text-slate-300'}`} />
-                                        ))}
+                                           <Star key={`star_${deal.id}_${star}`} className={`w-3 h-3 ${star <= rating ? 'text-amber-400 fill-current' : 'text-slate-300'}`} />
+                                       ))}
                                     </div>
                                     <span className="text-[10px] text-slate-400 font-medium">
                                         Based on Lead Quality
@@ -620,12 +668,12 @@ const OfferDeal: React.FC = () => {
                                         </button>
                                     )}
                                     {deal.leadSocials?.map((social: any, i: number) => (
-                                         <button 
-                                            key={i}
+                                        <button
+                                            key={`social_${deal.id}_${i}_${social.platform}`}
                                             onClick={() => handleChannelSelect(deal.id, social.platform)}
                                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all border capitalize
-                                                ${activeChannel === social.platform 
-                                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200' 
+                                                ${activeChannel === social.platform
+                                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200'
                                                     : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}
                                             `}
                                         >

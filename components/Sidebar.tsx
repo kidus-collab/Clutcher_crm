@@ -5,9 +5,8 @@ import {
   KanbanSquare, 
   Users, 
   Send, 
-  Hexagon,
+  Zap,
   Search,
-  Archive,
   CheckSquare,
   FileSignature
 } from 'lucide-react';
@@ -61,16 +60,25 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile = false }) => {
     <aside className="h-screen w-20 lg:w-64 fixed left-0 top-0 z-50 flex flex-col bg-slate-900/95 backdrop-blur-3xl border-r border-white/5 text-slate-300 shadow-2xl transition-all duration-300">
       {/* Logo Area */}
       <div className="h-32 flex items-center justify-center px-6 border-b border-white/5">
-        <div className="hidden lg:flex flex-col items-center justify-center gap-2">
-          <div className="relative flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 duration-300">
-            <Hexagon className="w-9 h-9 text-white" strokeWidth={2.5} />
+        <div className="hidden lg:flex flex-row items-center justify-center gap-4">
+          <div className="relative flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 rounded-2xl shadow-[0_0_30px_rgba(99,102,241,0.6)] transition-all hover:scale-110 hover:shadow-[0_0_40px_rgba(168,85,247,0.8)] duration-300 group">
+            {/* Animated glow background */}
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-400 to-pink-400 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-300"></div>
+            {/* Icon */}
+            <div className="relative z-10">
+              <Zap className="w-9 h-9 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]" strokeWidth={2.5} />
+            </div>
           </div>
-          <span className="font-bold text-white tracking-widest text-2xl leading-none uppercase">Clutcher</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="font-black text-white tracking-widest text-2xl leading-none uppercase bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 bg-clip-text text-transparent">Clutcher</span>
+            <span className="text-[10px] text-slate-400 font-medium tracking-widest uppercase">Platform</span>
+          </div>
         </div>
         {/* Tablet - icon only */}
         <div className="lg:hidden flex items-center justify-center">
-          <div className="relative flex items-center justify-center w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-[0_0_15px_rgba(99,102,241,0.3)]">
-            <Hexagon className="w-7 h-7 text-white" strokeWidth={2.5} />
+          <div className="relative flex items-center justify-center w-14 h-14 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.5)] group hover:shadow-[0_0_30px_rgba(168,85,247,0.7)] transition-all hover:scale-105 duration-300">
+            <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-indigo-400 to-pink-400 opacity-0 group-hover:opacity-20 blur-lg transition-opacity duration-300"></div>
+            <Zap className="w-7 h-7 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.8)] relative z-10" strokeWidth={2.5} />
           </div>
         </div>
       </div>
@@ -96,7 +104,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile = false }) => {
       
       {/* Footer */}
       <div className="p-6 hidden lg:block">
-        <div className="bg-white/5 rounded-2xl p-4 border-none shadow-neo-sm">
+        <div className="bg-white/5 rounded-2xl p-4 border-none shadow-neo-xs ">
             <p className="text-xs text-white font-bold opacity-80">Clutcher v1.0</p>
             <p className="text-[10px] text-slate-400 mt-1 font-medium italic">Simple. Functional.</p>
         </div>

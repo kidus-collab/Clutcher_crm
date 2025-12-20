@@ -31,12 +31,52 @@ export async function saveBusiness(business: Omit<Business, 'id'>): Promise<Busi
   }
   
   try {
-    // First, check if business with this website already exists
-    const { data: existingBusiness, error: selectError } = await supabase
-      .from('businesses')
-      .select('*')
-      .eq('website', business.website)
-      .maybeSingle();
+    // Enhanced redundancy check: check for existing business by website, name, or email
+    let existingBusiness = null;
+    let selectError = null;
+    
+    // Check by website (most specific)
+    if (business.website) {
+      const result = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('website', business.website)
+        .maybeSingle();
+      existingBusiness = result.data;
+      selectError = result.error;
+    }
+    
+    // If not found by website, check by name and email combination
+    if (!existingBusiness && !selectError) {
+      const result = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('name', business.name)
+        .eq('email', business.email || '')
+        .maybeSingle();
+      if (result.data) {
+        existingBusiness = result.data;
+      }
+      if (result.error) {
+        selectError = result.error;
+      }
+    }
+    
+    // If still not found, check by name only
+    if (!existingBusiness && !selectError && business.name) {
+      const result = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('name', business.name)
+        .maybeSingle();
+      if (result.data) {
+        existingBusiness = result.data;
+        console.warn('Business found with same name but different email/website:', existingBusiness.id);
+      }
+      if (result.error) {
+        selectError = result.error;
+      }
+    }
     
     if (selectError) {
       console.error('Error checking for existing business:', selectError);
@@ -205,6 +245,23 @@ export async function getBusinesses(): Promise<Business[]> {
  */
 export async function addToLeads(businessId: string, tags: string[] = []): Promise<Lead | null> {
   if (!supabase) return null;
+  
+  // Check for existing lead for this business to prevent duplicates
+  const { data: existingLead, error: checkError } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('business_id', businessId)
+    .maybeSingle();
+  
+  if (checkError) {
+    console.error('Error checking for existing lead:', checkError);
+    return null;
+  }
+  
+  if (existingLead) {
+    console.warn('Lead already exists for business:', businessId, 'Lead ID:', existingLead.id);
+    return null; // Return null to indicate duplicate, don't create new lead
+  }
   
   const { data: lead, error } = await supabase
     .from('leads')

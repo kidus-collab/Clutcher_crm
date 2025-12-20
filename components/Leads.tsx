@@ -86,6 +86,102 @@ const formatDateTime = (dateString: string) => {
   }
 };
 
+// Success notification popup component
+const SuccessNotification: React.FC<{
+  isVisible: boolean;
+  message: string;
+  onClose: () => void;
+}> = ({ isVisible, message, onClose }) => {
+  const [progress, setProgress] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(5); // 5 seconds countdown
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          onClose();
+          return 0;
+        }
+        return prev - 1;
+      });
+      
+      setProgress((prev) => {
+        if (prev >= 100) return 100;
+        return prev + 20; // Increment by 20% every second (5 seconds = 100%)
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isVisible, onClose]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (target.closest('.notification-popup')) return;
+      onClose();
+    };
+
+    if (isVisible) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isVisible, onClose]);
+
+  if (!isVisible) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -50, scale: 0.8 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -50, scale: 0.8 }}
+      transition={{
+        type: "spring",
+        stiffness: 300,
+        damping: 30,
+        duration: 0.4
+      }}
+      className="fixed top-4 right-4 bg-emerald-500 text-white px-6 py-4 rounded-xl shadow-2xl z-50 max-w-sm border border-emerald-600 notification-popup"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0">
+          <CheckCircle2 className="w-6 h-6 text-emerald-100" />
+        </div>
+        <div className="flex-1">
+          <h4 className="font-bold text-emerald-50">Success!</h4>
+          <p className="text-emerald-100 text-sm mt-1">{message}</p>
+          
+          {/* Progress bar */}
+          <div className="mt-3 bg-emerald-600/30 rounded-full h-1.5 overflow-hidden">
+            <motion.div
+              className="h-full bg-emerald-100 rounded-full"
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.5 }}
+            />
+          </div>
+          
+          {/* Timer */}
+          <div className="flex items-center gap-1 mt-2">
+            <Timer className="w-3 h-3 text-emerald-100" />
+            <span className="text-xs text-emerald-100">Closing in {timeLeft}s</span>
+          </div>
+        </div>
+        
+        <button
+          onClick={onClose}
+          className="flex-shrink-0 text-emerald-100 hover:text-white transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
 const Leads: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'board' | 'table' | 'analytics'>('board');
@@ -115,6 +211,10 @@ const Leads: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterTimeRange, setFilterTimeRange] = useState('');
   const [filterOutcome, setFilterOutcome] = useState('');
+  
+  // Success notification state
+  const [showSuccessNotification, setShowSuccessNotification] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const fetchLeads = async () => {
     const startTime = Date.now();
@@ -135,6 +235,18 @@ const Leads: React.FC = () => {
     
     // Active 'New' leads are those in the main table but NOT in any tracking table
     const activeRegularLeads = allRawLeads.filter(l => !processedIds.has(l.id));
+    
+    // DEBUG: Log details of each lead category
+    console.log('DEBUG: Raw leads from getLeads():', allRawLeads.map(l => ({ id: l.id, name: l.business.name, status: l.status, source: l.source })));
+    console.log('DEBUG: Outreach tracking leads:', outreachTrackingLeads.map(l => ({ id: l.id, name: l.business.name, status: l.status, source: l.source })));
+    console.log('DEBUG: Offers leads:', offersLeads.map(l => ({ id: l.id, name: l.business.name, status: l.status, source: l.source })));
+    console.log('DEBUG: Closed leads:', closedLeads.map(l => ({ id: l.id, name: l.business.name, status: l.status, source: l.source })));
+    
+    // DEBUG: Check for any leads with "No Reply" status in activeRegularLeads
+    const noReplyInActive = activeRegularLeads.filter(l => l.status === 'No Reply');
+    if (noReplyInActive.length > 0) {
+      console.log('DEBUG: Found leads with "No Reply" status in activeRegularLeads:', noReplyInActive.map(l => ({ id: l.id, name: l.business.name, status: l.status, source: l.source })));
+    }
     
     // Combine all leads for filtering
     const allLeads = [...activeRegularLeads, ...closedLeads, ...outreachTrackingLeads, ...offersLeads];
@@ -219,11 +331,33 @@ const Leads: React.FC = () => {
   
   // So 'New' = source NOT IN ('Outreach Tracking', 'Offer', 'Closed')
   
+  // DEBUG: Log leads being assigned to each column
+  const newLeads = filteredLeads.filter(l =>
+    l.source !== 'Outreach Tracking' &&
+    l.source !== 'Offer' &&
+    l.source !== 'Closed' &&
+    l.status !== 'No Reply' // Explicitly exclude leads with "No Reply" status
+  );
+  const noReplyLeads = filteredLeads.filter(l => l.source === 'Outreach Tracking');
+  const negotiationsLeads = filteredLeads.filter(l => l.source === 'Offer');
+  const convertedLeads = filteredLeads.filter(l => l.source === 'Closed');
+  
+  // DEBUG: Check for leads with "No Reply" status in the New column
+  const noReplyInNew = newLeads.filter(l => l.status === 'No Reply');
+  if (noReplyInNew.length > 0) {
+    console.log('DEBUG: Found leads with "No Reply" status in New column:', noReplyInNew.map(l => ({ id: l.id, name: l.business.name, status: l.status, source: l.source })));
+  } else {
+    console.log('DEBUG: No leads with "No Reply" status found in New column - fix successful!');
+  }
+  
+  // DEBUG: Log all leads with their status and source for debugging
+  console.log('DEBUG: All leads with status and source:', filteredLeads.map(l => ({ id: l.id, name: l.business.name, status: l.status, source: l.source })));
+
   const columns = {
-    'New': filteredLeads.filter(l => l.source !== 'Outreach Tracking' && l.source !== 'Offer' && l.source !== 'Closed'),
-    'No Reply': filteredLeads.filter(l => l.source === 'Outreach Tracking'),
-    'Negotiations': filteredLeads.filter(l => l.source === 'Offer'),
-    'Converted': filteredLeads.filter(l => l.source === 'Closed'),
+    'New': newLeads,
+    'No Reply': noReplyLeads,
+    'Negotiations': negotiationsLeads,
+    'Converted': convertedLeads,
   };
 
   const getStatusColor = (status: string) => {
@@ -289,13 +423,15 @@ const Leads: React.FC = () => {
         );
         
         if (trackingResult.duplicate) {
-          alert('This lead is already in the outreach tracking list!');
+          setSuccessMessage('This lead is already in the outreach tracking list!');
+          setShowSuccessNotification(true);
           return;
         }
         
         if (!trackingResult.success) {
           console.error('Failed to track outreach button click');
-          alert('Error: Failed to add to outreach tracking. Please run the SQL command to enable public access to outreach_tracking table.');
+          setSuccessMessage('Error: Failed to add to outreach tracking. Please run the SQL command to enable public access to outreach_tracking table.');
+          setShowSuccessNotification(true);
         } else {
           console.log('Successfully tracked outreach button click for:', lead.business.name);
           
@@ -308,11 +444,56 @@ const Leads: React.FC = () => {
         }
       } catch (error) {
         console.error('Exception during outreach tracking:', error);
-        alert('Exception during tracking. Check console for details.');
+        setSuccessMessage('Exception during tracking. Check console for details.');
+        setShowSuccessNotification(true);
       }
   };
 
-
+  const handleLeadCardClick = async (lead: Lead) => {
+    // Add lead to outreach_tracking table
+    try {
+      const trackingResult = await logOutreachTracking(
+        lead.id,
+        lead.business.name,
+        'lead_card_clicked',
+        {
+          button_clicked: 'lead_card',
+          timestamp: new Date().toISOString()
+        },
+        'leads_page'
+      );
+      
+      if (trackingResult.duplicate) {
+        console.log('Lead already in outreach tracking');
+        return;
+      }
+      
+      if (!trackingResult.success) {
+        console.error('Failed to track lead card click');
+        return;
+      }
+      
+      // Only update the source to 'Outreach Tracking' to move it to the correct column
+      // Don't change the status - keep it as 'New'
+      if (supabase) {
+        const { error: sourceError } = await supabase
+          .from('leads')
+          .update({ source: 'Outreach Tracking' })
+          .eq('id', lead.id);
+          
+        if (sourceError) {
+          console.error('Failed to update lead source:', sourceError);
+        } else {
+          console.log('Lead source updated to Outreach Tracking:', lead.business.name);
+        }
+      }
+      
+      // Refresh leads data to show updated source
+      await fetchLeads();
+    } catch (error) {
+      console.error('Exception during lead card click handling:', error);
+    }
+  };
 
   // --- Analytical Calculations ---
   const COLORS: Record<string, string> = {
@@ -376,7 +557,8 @@ const Leads: React.FC = () => {
   const handleAddLead = async () => {
     // Validation: Business name is mandatory, and at least one of website, email, or social media
     if (!newLeadName || (!newLeadWebsite && !newLeadEmail && !newLeadTwitter && !newLeadInstagram && !newLeadTiktok && !newLeadLinkedin && !newLeadTelegram)) {
-      alert('Business name is required and at least one of website, email, or social media must be provided');
+      setSuccessMessage('Business name is required and at least one of website, email, or social media must be provided');
+      setShowSuccessNotification(true);
       return;
     }
     
@@ -389,7 +571,7 @@ const Leads: React.FC = () => {
       if (newLeadLinkedin) socials.push({ platform: 'linkedin' as const, url: newLeadLinkedin, handle: newLeadLinkedin });
       if (newLeadTelegram) socials.push({ platform: 'telegram' as const, url: newLeadTelegram, handle: `@${newLeadTelegram}` });
       
-      // Create business first
+      // Create business first (with enhanced redundancy checks)
       const business = await saveBusiness({
         name: newLeadName,
         website: newLeadWebsite,
@@ -400,15 +582,24 @@ const Leads: React.FC = () => {
       });
       
       if (!business) {
-        alert('Failed to create business. Please try again.');
+        setSuccessMessage('Failed to create business. Please try again.');
+        setShowSuccessNotification(true);
         return;
       }
       
-      // Create lead for business
+      // Create lead for business (with redundancy check)
       const lead = await addToLeads(business.id);
       
       if (!lead) {
-        alert('Failed to create lead. Please try again.');
+        // Check if this is a duplicate lead scenario
+        const existingLeads = leads.filter(l => l.business.id === business.id);
+        if (existingLeads.length > 0) {
+          setSuccessMessage(`This business already exists as a lead: "${existingLeads[0].business.name}". Lead not created to avoid duplicates.`);
+          setShowSuccessNotification(true);
+        } else {
+          setSuccessMessage('Failed to create lead. Please try again.');
+          setShowSuccessNotification(true);
+        }
         return;
       }
       
@@ -429,10 +620,12 @@ const Leads: React.FC = () => {
       setNewLeadTelegram('');
       
       // Show success notification
-      alert('Lead created successfully!');
+      setSuccessMessage(`Lead "${newLeadName}" created successfully!`);
+      setShowSuccessNotification(true);
     } catch (error) {
       console.error('Error adding lead:', error);
-      alert('An error occurred while adding lead.');
+      setSuccessMessage('An error occurred while adding lead. Please try again.');
+      setShowSuccessNotification(true);
     }
   };
 
@@ -460,12 +653,13 @@ const Leads: React.FC = () => {
 
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      className="h-screen flex flex-col p-3 sm:p-4 lg:p-10 overflow-hidden max-w-[1600px] mx-auto"
-    >
+    <>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="h-screen flex flex-col p-3 sm:p-4 lg:p-10 overflow-hidden max-w-[1600px] mx-auto"
+      >
       {/* Header Section */}
       <div className="shrink-0 mb-4 sm:mb-6">
         <div className="flex flex-col md:flex-row justify-between items-start gap-3 sm:gap-4">
@@ -690,7 +884,14 @@ const Leads: React.FC = () => {
                                     key={lead.id}
                                     className="p-3.5 sm:p-5 group relative border-l-4 hover:transition-all cursor-pointer overflow-visible"
                                     hoverEffect
-                                    onClick={() => navigate(route)}
+                                    onClick={() => {
+                                      // For New column leads, add to outreach_tracking when card is clicked
+                                      if (status === 'New') {
+                                        handleLeadCardClick(lead);
+                                      } else {
+                                        navigate(route);
+                                      }
+                                    }}
                                     style={{ borderLeftColor: COLORS[status] || 'transparent' }}
                                 >
                                     <div className="flex justify-between items-start mb-2.5 sm:mb-3">
@@ -720,9 +921,10 @@ const Leads: React.FC = () => {
                                         <div className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all">
                                             {lead.status === 'New' ? (
                                               <button
-                                                onClick={(e) => {
+                                                onClick={async (e) => {
                                                   e.stopPropagation();
-                                                  handleOutreach(lead);
+                                                  await handleOutreach(lead);
+                                                  navigate(`/outreach?lead=${lead.id}`);
                                                 }}
                                                 className="flex items-center gap-1 hover:text-indigo-800 transition-colors"
                                               >
@@ -1022,8 +1224,27 @@ const Leads: React.FC = () => {
 
       {/* Add Lead Modal */}
       {showAddLeadModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
-          <div className="bg-white rounded-lg sm:rounded-xl border border-slate-200 max-w-md w-full p-4 sm:p-6">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4"
+          onClick={() => setShowAddLeadModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            transition={{
+              type: "spring",
+              stiffness: 300,
+              damping: 30,
+              duration: 0.4
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-lg sm:rounded-xl border border-slate-200 max-w-md w-full p-4 sm:p-6"
+          >
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center">
                 <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 lg:w-8 lg:h-8 text-indigo-600" />
@@ -1175,14 +1396,33 @@ const Leads: React.FC = () => {
                 Add Lead
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
-       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-         <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full p-6">
+       <motion.div
+         initial={{ opacity: 0 }}
+         animate={{ opacity: 1 }}
+         exit={{ opacity: 0 }}
+         transition={{ duration: 0.3 }}
+         className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+         onClick={() => setDeleteConfirmId(null)}
+       >
+         <motion.div
+           initial={{ scale: 0.8, opacity: 0 }}
+           animate={{ scale: 1, opacity: 1 }}
+           exit={{ scale: 0.8, opacity: 0 }}
+           transition={{
+             type: "spring",
+             stiffness: 300,
+             damping: 30,
+             duration: 0.4
+           }}
+           onClick={(e) => e.stopPropagation()}
+           className="bg-white rounded-xl border border-slate-200 max-w-md w-full p-6"
+         >
            <div className="flex items-center gap-3 mb-4">
              <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center">
                <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 lg:w-8 lg:h-8 text-rose-600" />
@@ -1223,10 +1463,18 @@ const Leads: React.FC = () => {
                )}
              </button>
            </div>
-         </div>
-       </div>
+         </motion.div>
+       </motion.div>
      )}
-    </motion.div>
+     </motion.div>
+     
+     {/* Success Notification */}
+     <SuccessNotification
+       isVisible={showSuccessNotification}
+       message={successMessage}
+       onClose={() => setShowSuccessNotification(false)}
+     />
+   </>
   );
 };
 

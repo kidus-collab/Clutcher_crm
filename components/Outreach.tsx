@@ -28,7 +28,7 @@ import {
     Loader2
 } from 'lucide-react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { getLeads, updateLeadStatus, logActivity, createFollowUpTask, createOffer, supabase, logOutreachTracking, addClosedLead, getOutreachTrackingLeads, deleteOutreachTracking } from '../lib/database/supabase';
+import { getLeads, updateLeadStatus, logActivity, createFollowUpTask, createOffer, supabase, logOutreachTracking, addClosedLead, getOutreachTrackingLeads, deleteOutreachTracking, saveBusiness, addToLeads } from '../lib/database/supabase';
 import { Lead, SocialProfile } from '../types';
 
 const Outreach: React.FC = () => {
@@ -76,6 +76,16 @@ const Outreach: React.FC = () => {
   const [outreachType, setOutreachType] = useState<'email' | 'phone' | 'social' | 'website'>('email');
   const [outreachNotes, setOutreachNotes] = useState('');
   const [outreachDate, setOutreachDate] = useState('');
+
+  // New Business Form State (for Outreach Portal)
+  const [newBusinessName, setNewBusinessName] = useState('');
+  const [newBusinessWebsite, setNewBusinessWebsite] = useState('');
+  const [newBusinessEmail, setNewBusinessEmail] = useState('');
+  const [newBusinessPhone, setNewBusinessPhone] = useState('');
+  const [newBusinessLinkedin, setNewBusinessLinkedin] = useState('');
+  const [newBusinessTwitter, setNewBusinessTwitter] = useState('');
+  const [newBusinessInstagram, setNewBusinessInstagram] = useState('');
+  const [isAddingBusiness, setIsAddingBusiness] = useState(false);
 
   // Email outreach state
   const [emailSubject, setEmailSubject] = useState('');
@@ -242,12 +252,26 @@ const Outreach: React.FC = () => {
   const handleSendEmail = async () => {
       if (!activeLead) return;
       
-      // Show email popup instead of sending directly
-      setShowEmailPopup(true);
+      // Direct Gmail URL instead of popup
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(activeLead.business.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
+      window.open(gmailUrl, '_blank');
+      
+      // Log the activity
+      await logActivity('email', `Opened Gmail compose: ${subject}`, activeLead.id);
+      
+      setNotificationMsg('Opening Gmail compose...');
+      setShowNotification(true);
+      setTimeout(() => setShowNotification(false), 3000);
   };
 
   const handleSendFromGmail = async () => {
       if (!activeLead) return;
+      
+      // Debug: Log current form values
+      console.log('DEBUG: Gmail button clicked');
+      console.log('DEBUG: Current subject:', subject);
+      console.log('DEBUG: Current emailBody:', emailBody);
+      console.log('DEBUG: Active lead email:', activeLead.business.email);
       
       // Track email send action in localStorage
       const outreachActions = JSON.parse(localStorage.getItem('outreachActions') || '[]');
@@ -261,14 +285,19 @@ const Outreach: React.FC = () => {
       });
       localStorage.setItem('outreachActions', JSON.stringify(outreachActions));
       
-      // Open mailto link for Gmail
-      const mailtoUrl = `mailto:${encodeURIComponent(activeLead.business.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
-      window.location.href = mailtoUrl;
+      // Open Gmail compose URL with actual subject and body from form
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(activeLead.business.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
+      console.log('DEBUG: Generated Gmail URL:', gmailUrl);
+      
+      // Try opening with a small delay to ensure state is updated
+      setTimeout(() => {
+        window.open(gmailUrl, '_blank');
+      }, 100);
       
       // Log the activity
       await logActivity('email', `Sent email via Gmail: ${subject}`, activeLead.id);
       
-      setNotificationMsg('Opening email client...');
+      setNotificationMsg('Opening Gmail compose...');
       setShowNotification(true);
       setTimeout(() => setShowNotification(false), 3000);
       setShowEmailPopup(false);
@@ -289,10 +318,7 @@ const Outreach: React.FC = () => {
       });
       localStorage.setItem('outreachActions', JSON.stringify(outreachActions));
       
-      // In a real app, This would call an email API
-      await logActivity('email', `Sent email: ${subject}`, activeLead.id);
-      
-      // Show webhook success popup
+      // Show webhook progress popup
       setShowWebhookTimer(true);
       setWebhookProgress(0);
       
@@ -302,31 +328,53 @@ const Outreach: React.FC = () => {
               if (prev >= 100) {
                   clearInterval(interval);
                   setShowWebhookTimer(false);
-                  
-                  // Track email send action in localStorage
-                  const webhookActions = JSON.parse(localStorage.getItem('outreachActions') || '[]');
-                  webhookActions.push({
-                    leadId: activeLead.id,
-                    leadName: activeLead.business.name,
-                    action: 'email_sent_from_app',
-                    subject: subject,
-                    timestamp: new Date().toISOString(),
-                    source: 'outreach_page'
-                  });
-                  localStorage.setItem('outreachActions', JSON.stringify(webhookActions));
-                  
-                  // Log the activity
-                  logActivity('email', `Sent email via app: ${subject}`, activeLead.id);
-                  
-                  setNotificationMsg('Email sent successfully via app!');
-                  setShowNotification(true);
-                  setTimeout(() => setShowNotification(false), 3000);
-                  setShowEmailPopup(false);
                   return 100;
               }
               return prev + 3.33; // Increment by ~3.33% every 100ms for 3-second total
           });
       }, 100);
+      
+      try {
+        // Call email webhook endpoint
+        const response = await fetch('/api/send-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: activeLead.business.email,
+            subject: subject,
+            text: emailBody,
+            html: emailBody.replace(/\n/g, '<br>') // Convert line breaks to HTML
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          // Clear interval and hide timer
+          clearInterval(interval);
+          setShowWebhookTimer(false);
+          
+          // Log the activity
+          await logActivity('email', `Sent email via app: ${subject}`, activeLead.id);
+          
+          setNotificationMsg('Email sent successfully!');
+          setShowNotification(true);
+          setTimeout(() => setShowNotification(false), 3000);
+          setShowEmailPopup(false);
+        } else {
+          throw new Error(result.error || 'Failed to send email');
+        }
+      } catch (error) {
+        console.error('Email send error:', error);
+        clearInterval(interval);
+        setShowWebhookTimer(false);
+        
+        setNotificationMsg('Failed to send email. Please try again.');
+        setShowNotification(true);
+        setTimeout(() => setShowNotification(false), 5000);
+      }
   };
 
   // Email webhook timer state
@@ -702,47 +750,51 @@ const Outreach: React.FC = () => {
                            onChange={(e) => setEmailBody(e.target.value)}
                            className="flex-1 w-full bg-white border border-slate-200 rounded-lg p-3 sm:p-4 resize-none outline-none text-slate-700 placeholder:text-slate-400 font-sans leading-relaxed text-sm transition-all"
                            placeholder="Write your email here..."
+                           rows={8}
+                           style={{ minHeight: '200px' }}
                        />
                    </div>
-
-                   <div className="p-4 sm:p-6 bg-white border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 sm:gap-6">
-                       <div className="flex flex-col gap-1.5 w-full md:w-auto">
+                     <div className="flex gap-2 sm:gap-3 w-full">
+                           <button
+                               onClick={handleSendEmail}
+                               className="flex-1 px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2 text-sm border-none active:scale-[0.98]"
+                           >
+                               <Send className="w-4 h-4" /> <span>Send Email</span>
+                           </button>
+                       </div>
+                   <div className="p-4 sm:p-6 bg-white border-t border-slate-200 flex flex-col gap-4 sm:gap-6">
+                       <div className="flex flex-col gap-2 w-full">
                            <div className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 px-1">Create Follow-up Task</div>
-                           <div className="flex items-center gap-1.5 sm:gap-2 bg-white p-1.5 rounded-lg sm:rounded-xl border border-slate-200 transition-all">
-                               <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500 ml-2" />
-                               <input
-                                   type="date"
-                                   className="bg-transparent text-[10px] sm:text-xs font-bold text-slate-700 outline-none p-1 w-20 sm:w-24 cursor-pointer"
-                                   value={followUpDate}
-                                   onChange={(e) => setFollowUpDate(e.target.value)}
-                               />
-                               <div className="w-px h-3.5 sm:h-4 bg-slate-200 mx-1"></div>
+                           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 bg-white p-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-200 transition-all">
+                               <div className="flex items-center gap-1.5 sm:gap-2 flex-1 sm:flex-none">
+                                   <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500 ml-2 flex-shrink-0" />
+                                   <input
+                                       type="date"
+                                       className="bg-transparent text-[10px] sm:text-xs font-bold text-slate-700 outline-none p-1.5 sm:p-2 w-full sm:w-28 cursor-pointer"
+                                       value={followUpDate}
+                                       onChange={(e) => setFollowUpDate(e.target.value)}
+                                   />
+                               </div>
+                               <div className="hidden sm:block w-px h-4 bg-slate-200"></div>
                                <input
                                    type="text"
                                    placeholder="Add note..."
-                                   className="bg-transparent text-[10px] sm:text-xs text-slate-700 outline-none p-1 w-32 sm:w-48 md:w-64 placeholder:text-slate-300 font-medium"
+                                   className="bg-transparent text-[10px] sm:text-xs text-slate-700 outline-none p-1.5 sm:p-2 flex-1 placeholder:text-slate-300 font-medium"
                                    value={followUpNote}
                                    onChange={(e) => setFollowUpNote(e.target.value)}
                                />
                                <button
                                    onClick={handleSchedule}
                                    disabled={!followUpDate}
-                                   className="ml-1 flex items-center gap-1.5 text-[10px] sm:text-xs bg-white text-indigo-600 px-3 py-1.5 rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap border border-slate-200"
+                                   className="flex items-center justify-center gap-1.5 text-[10px] sm:text-xs bg-white text-indigo-600 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap border border-slate-200 hover:bg-indigo-50 flex-shrink-0"
                                >
                                   <PlusCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                                  <span className="">Schedule</span>
+                                  <span>Schedule</span>
                                </button>
                            </div>
                        </div>
 
-                       <div className="flex gap-2 sm:gap-3 w-full md:w-auto mt-3 md:mt-0">
-                           <button
-                               onClick={handleSendEmail}
-                               className="flex-1 md:flex-none px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2 text-sm border-none active:scale-[0.98]"
-                           >
-                               <Send className="w-4 h-4" /> <span className="">Send Email</span>
-                           </button>
-                       </div>
+                     
                    </div>
                </GlassCard>
            ) : (
@@ -834,8 +886,8 @@ const Outreach: React.FC = () => {
 
       {/* Offer Modal */}
       {showOfferModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <GlassCard className="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-8 scrollbar-hide">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowOfferModal(false)}>
+              <GlassCard className="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-8 scrollbar-hide" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-4 mb-8">
                       <div className="w-14 h-14 rounded-2xl bg-purple-50 flex items-center justify-center">
                           <PlusCircle className="w-8 h-8 text-purple-600" />
@@ -1018,8 +1070,8 @@ const Outreach: React.FC = () => {
 
       {/* Outreach Tracking Modal */}
       {showOutreachModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <GlassCard className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full p-8 overflow-hidden">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowOutreachModal(false)}>
+              <GlassCard className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full p-8 overflow-hidden" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-4 mb-8">
                       <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center">
                           <Send className="w-8 h-8 text-indigo-600" />
@@ -1148,48 +1200,6 @@ const Outreach: React.FC = () => {
                   </div>
               </GlassCard>
           </div>
-      )}
-      {/* Email Send Popup Modal */}
-      {showEmailPopup && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-8">
-            <div className="flex items-center gap-4 mb-6">
-                <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center">
-                    <Mail className="w-8 h-8 text-indigo-600" />
-                </div>
-                <div>
-                    <h3 className="text-xl font-black text-slate-800 tracking-tight">Send Email</h3>
-                    <p className="text-sm text-slate-400 font-medium">Choose how you'd like to send your email to {activeLead?.business.name}</p>
-                </div>
-            </div>
-            
-            <div className="flex gap-4 w-full">
-                <button
-                    onClick={handleSendFromGmail}
-                    className="flex-1 px-6 py-4 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-bold hover:from-red-600 hover:to-red-700 transition-all flex items-center justify-center gap-2"
-                >
-                    <Mail className="w-5 h-5" />
-                    <span>Send via Gmail</span>
-                </button>
-                <button
-                    onClick={handleSendFromHere}
-                    className="flex-1 px-6 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-bold hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2"
-                >
-                    <Send className="w-5 h-5" />
-                    <span>Send from Here</span>
-                </button>
-            </div>
-            
-            <div className="flex gap-4 w-full mt-4">
-                <button
-                    onClick={() => setShowEmailPopup(false)}
-                    className="px-6 py-3 text-slate-500 font-bold bg-white rounded-xl border border-slate-200 transition-all"
-                >
-                    Cancel
-                </button>
-            </div>
-          </div>
-        </div>
       )}
   
       {/* Webhook Timer Popup */}
