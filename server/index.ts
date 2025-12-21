@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { searchWithJina } from './scraper.ts';
+import { searchWithJina } from './scraper';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -25,31 +25,80 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Scrape Endpoint
+// Scrape Endpoint with caching support
 app.post('/api/scrape', async (req, res) => {
   try {
-    const { query } = req.body;
+    const { query, useCache = true } = req.body;
     
     if (!query) {
       return res.status(400).json({ success: false, error: 'Query is required' });
     }
 
     console.log(`\n🔎 Scraping request received: "${query}"`);
+    const startTime = Date.now();
     const results = await searchWithJina(query);
+    const processingTime = Date.now() - startTime;
     
-    console.log(`📤 Returning ${results.length} results\n`);
+    console.log(`📤 Returning ${results.length} results in ${processingTime}ms\n`);
     
-    return res.json({
+    // Add cache headers for client-side caching
+    const response = {
       success: true,
       data: results,
-      count: results.length
+      count: results.length,
+      metadata: {
+        query,
+        timestamp: new Date().toISOString(),
+        processingTime,
+        cacheable: true,
+        cacheTTL: 24 * 60 * 60 * 1000 // 24 hours in milliseconds
+      }
+    };
+    
+    // Set cache headers for HTTP caching
+    res.set({
+      'Cache-Control': 'public, max-age=86400', // 24 hours
+      'ETag': `"${query}-${results.length}"`,
+      'Last-Modified': new Date().toUTCString()
     });
+    
+    return res.json(response);
     
   } catch (error) {
     console.error('❌ Scraping error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Internal server error' 
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// Cache invalidation endpoint
+app.delete('/api/cache', async (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (query) {
+      // In client-side caching, this signals the client to clear specific query cache
+      console.log(`🗑️ Cache invalidation request for query: "${query}"`);
+      return res.json({
+        success: true,
+        message: `Cache invalidated for query: ${query}`,
+        query
+      });
+    } else {
+      // Clear all cache
+      console.log('🗑️ Global cache invalidation request');
+      return res.json({
+        success: true,
+        message: 'All cache invalidated'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Cache invalidation error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
     });
   }
 });

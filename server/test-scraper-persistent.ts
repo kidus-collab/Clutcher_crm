@@ -1,7 +1,7 @@
 
 import dotenv from 'dotenv';
 import path from 'path';
-import { searchWithJina } from './scraper.ts';
+import { searchWithJina } from './scraper';
 
 // Load env vars
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
