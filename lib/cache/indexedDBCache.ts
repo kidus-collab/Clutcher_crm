@@ -1,4 +1,4 @@
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { openDB, DBSchema, IDBPDatabase } from 'idb/build';
 
 // Interface for cached search results
 export interface CachedSearchResult {
