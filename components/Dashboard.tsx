@@ -22,21 +22,25 @@ import {
   TrendingUp,
   ChevronRight,
   ChevronLeft,
-  Activity as ActivityIcon
+  Activity as ActivityIcon,
+  AlertTriangle,
+  Trash2
 } from 'lucide-react';
 import GlassCard from './ui/GlassCard';
-import { 
-  supabase, 
-  getDashboardStats, 
-  getActivities, 
-  getLeads, 
-  logActivity, 
-  getFollowUpTasks, 
-  updateFollowUpTaskStatus, 
-  deleteFollowUpTask, 
-  createFollowUpTask, 
-  getOffers, 
-  getOutreachSentCount 
+import {
+  supabase,
+  getDashboardStats,
+  getActivities,
+  getLeads,
+  logActivity,
+  getFollowUpTasks,
+  updateFollowUpTaskStatus,
+  deleteFollowUpTask,
+  createFollowUpTask,
+  getOffers,
+  getOutreachSentCount,
+  resetCRM,
+  getLeadFinancials
 } from '../lib/database/supabase';
 import { Activity } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -55,6 +59,7 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [leads, setLeads] = useState<any[]>([]);
   const [offers, setOffers] = useState<any[]>([]);
+  const [financials, setFinancials] = useState<any[]>([]);
   const [outreachCount, setOutreachCount] = useState(0);
   
   // Add task modal state
@@ -67,6 +72,11 @@ const Dashboard: React.FC = () => {
   // Exchange rate state
   const [showUSD, setShowUSD] = useState(true);
   const [exchangeRate, setExchangeRate] = useState(120); // 1 USD = 120 ETB
+  
+  // Reset CRM state
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -83,6 +93,10 @@ const Dashboard: React.FC = () => {
     const offersData = await getOffers();
     setOffers(offersData);
     
+    // Fetch financial data for revenue calculations
+    const financialsData = await getLeadFinancials();
+    setFinancials(financialsData);
+    
     const outreachSentValue = await getOutreachSentCount();
     setOutreachCount(outreachSentValue);
 
@@ -91,7 +105,7 @@ const Dashboard: React.FC = () => {
 
     const followUps = await getFollowUpTasks();
     const pendingFollowUps = followUps.filter(task => task.status === 'Pending');
-    setFollowUpTasks(pendingFollowUps.sort((a, b) => 
+    setFollowUpTasks(pendingFollowUps.sort((a, b) =>
       new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime()
     ));
 
@@ -148,7 +162,7 @@ const Dashboard: React.FC = () => {
     l.status === 'Converted' && new Date(l.createdAt || '') > oneWeekAgo
   ).length;
   
-  const totalRevenue = offers.reduce((sum, offer) => sum + (offer.value || 0), 0);
+  const totalRevenue = financials.reduce((sum, financial) => sum + (financial.contract_value || 0), 0);
   
   const leadsThisWeek = leads.filter(l =>
     new Date(l.createdAt || '') > oneWeekAgo
@@ -158,17 +172,63 @@ const Dashboard: React.FC = () => {
 
   // Handlers
   const handleAddTask = async () => {
-    if (!newTask.title || !newTask.date) return;
+    console.log('DEBUG: handleAddTask called');
+    console.log('DEBUG: newTask:', newTask);
+    
+    if (!newTask.title || !newTask.date) {
+      console.log('DEBUG: Missing task title or date, returning early');
+      return;
+    }
+    
     try {
       const timestamp = new Date(newTask.date).toISOString();
+      console.log('DEBUG: Creating follow-up task with:', {
+        leadId: '',
+        taskTitle: newTask.title,
+        taskNotes: newTask.title,
+        scheduledDate: timestamp,
+        priority: newTask.priority
+      });
+      
       const success = await createFollowUpTask('', newTask.title, newTask.title, timestamp, newTask.priority);
+      console.log('DEBUG: createFollowUpTask result:', success);
+      
       if (success) {
+        console.log('DEBUG: Task created successfully, updating state');
         setIsAddTaskModalOpen(false);
         setNewTask({ title: '', date: '', priority: 'Medium' });
         fetchData();
+      } else {
+        console.log('DEBUG: Task creation failed, success was false');
       }
     } catch (error) {
-      console.error('Error adding task:', error);
+      console.error('DEBUG: Error adding task:', error);
+      console.error('DEBUG: Error details:', JSON.stringify(error, null, 2));
+    }
+  };
+
+  // Reset CRM handlers
+  const handleResetCRM = async () => {
+    if (confirmText !== 'DELETE') {
+      return;
+    }
+    
+    setIsResetting(true);
+    try {
+      const result = await resetCRM();
+      if (result.success) {
+        setIsResetModalOpen(false);
+        setConfirmText(''); // Reset confirm text
+        // Refetch data to show empty state
+        fetchData();
+      } else {
+        console.error('Reset failed:', result.error);
+        // You could show a toast notification here
+      }
+    } catch (error) {
+      console.error('Reset error:', error);
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -309,6 +369,13 @@ const Dashboard: React.FC = () => {
            <h1 className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">Overview</h1>
            <p className="text-slate-500 text-xs mt-1 font-medium">Welcome back, Here's your performance snapshot.</p>
         </div>
+        <button
+          onClick={() => setIsResetModalOpen(true)}
+          className="flex items-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs font-medium shadow-sm"
+        >
+          <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
+          <span className="hidden sm:inline">Reset CRM</span>
+        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -465,6 +532,80 @@ const Dashboard: React.FC = () => {
             <div className="flex gap-2 sm:gap-3 mt-3 sm:mt-5 justify-end">
               <button onClick={() => setIsAddTaskModalOpen(false)} className="px-3 py-1.5 sm:px-4 sm:py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors text-xs sm:text-sm font-bold">Cancel</button>
               <button onClick={handleAddTask} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-bold text-xs sm:text-sm">Add Task</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset CRM Confirmation Modal */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
+          <div className="bg-white rounded-lg sm:rounded-xl max-w-md w-full p-4 sm:p-6 border border-slate-200 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-800">Reset CRM</h3>
+                <p className="text-xs sm:text-sm text-slate-500">This action cannot be undone</p>
+              </div>
+            </div>
+            
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+              <p className="text-xs sm:text-sm text-red-800 font-medium">
+                ⚠️ Warning: This will permanently delete all data including:
+              </p>
+              <ul className="text-xs sm:text-sm text-red-700 mt-2 space-y-1">
+                <li>• All businesses and contacts</li>
+                <li>• All leads and their status</li>
+                <li>• All deals and offers</li>
+                <li>• All activities and follow-up tasks</li>
+                <li>• All outreach tracking data</li>
+              </ul>
+            </div>
+            
+            <div className="mb-4">
+              <label className="block text-xs sm:text-sm font-medium text-slate-700 mb-2">
+                Type <span className="font-mono bg-red-100 text-red-700 px-2 py-1 rounded">DELETE</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                disabled={isResetting}
+              />
+            </div>
+            
+            <div className="flex gap-2 sm:gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setIsResetModalOpen(false);
+                  setConfirmText(''); // Reset confirm text when closing
+                }}
+                disabled={isResetting}
+                className="px-3 py-2 sm:px-4 sm:py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors text-xs sm:text-sm font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetCRM}
+                disabled={isResetting || confirmText !== 'DELETE'}
+                className="px-3 py-2 sm:px-4 sm:py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-xs sm:text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+              >
+                {isResetting ? (
+                  <>
+                    <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    Resetting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                    Delete All Data
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

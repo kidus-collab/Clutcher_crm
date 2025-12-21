@@ -22,7 +22,7 @@ import {
     PlusCircle
 } from 'lucide-react';
 import { Deal, Lead } from '../types';
-import { getOffers, updateOfferStage, deleteOffer, updateLeadStatus, createDeal, getLeads, createOffer, supabase } from '../lib/database/supabase';
+import { getOffers, updateOfferStage, deleteOffer, updateLeadStatus, createDeal, getLeads, createOffer, supabase, createLeadFinancial } from '../lib/database/supabase';
 
 const OfferDeal: React.FC = () => {
   const [offerDeals, setOfferDeals] = useState<any[]>([]);
@@ -64,6 +64,22 @@ const OfferDeal: React.FC = () => {
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  // Initialize inputValues when offers are loaded
+  useEffect(() => {
+    if (offerDeals.length > 0) {
+      const initialValues: Record<string, string> = {};
+      offerDeals.forEach(offer => {
+        if (offer.value > 0) {
+          initialValues[offer.id] = currency === 'ETB'
+            ? (offer.value * exchangeRate).toFixed(2)
+            : offer.value.toString();
+        }
+      });
+      setInputValues(initialValues);
+      console.log('DEBUG: Initialized inputValues with:', initialValues);
+    }
+  }, [offerDeals, currency, exchangeRate]);
 
   const fetchAvailableLeads = async () => {
     const leads = await getLeads();
@@ -148,15 +164,16 @@ const OfferDeal: React.FC = () => {
         // Drops to 0 after ~11 days (264 hours).
         const timeScore = Math.max(0, 40 - Math.max(0, (outreachDurationHours - 24) / 6));
         
-        // 2. Good Fit / Outcome (Max 30)
-        const outcome = offer.lead?.outcome || ''; 
+        // 2. Good Fit / Outcome (Max 30) - Using badFitGoodFit from offers table
+        const fitStatus = offer.badFitGoodFit || 'Pending';
         let outcomeScore = 0;
-        if (outcome === 'Good Fit') outcomeScore = 30;
-        else if (outcome === 'Interested') outcomeScore = 15;
+        if (fitStatus === 'Good Fit') outcomeScore = 30;
+        else if (fitStatus === 'Interested') outcomeScore = 15;
+        else if (fitStatus === 'Bad Fit') outcomeScore = -10; // Penalty for bad fit
         
-        // 3. Interaction Quality / Rating (Max 30)
-        const rating = offer.lead?.rating || 0;
-        const ratingScore = rating ? (rating / 5) * 30 : 0;
+        // 3. Interaction Quality / Rating (Max 30) - Using logQualityRating from offers table
+        const rating = offer.logQualityRating || 0;
+        const ratingScore = (rating / 5) * 30;
         
         // Total Probability
         let probability = timeScore + outcomeScore + ratingScore;
@@ -343,33 +360,36 @@ const OfferDeal: React.FC = () => {
   const getValueForSave = (deal: any) => {
       const inputVal = inputValues[deal.id];
       
-      console.log('DEBUG getValueForSave:');
-      console.log('- deal.id:', deal.id);
-      console.log('- inputValues[deal.id]:', inputVal);
-      console.log('- deal.value (from DB):', deal.value);
-      console.log('- currency:', currency);
-      console.log('- exchangeRate:', exchangeRate);
+      console.log('=== DEBUG getValueForSave START ===');
+      console.log('deal.id:', deal.id);
+      console.log('inputValues[deal.id]:', inputVal);
+      console.log('deal.value (from DB):', deal.value);
+      console.log('currency:', currency);
+      console.log('exchangeRate:', exchangeRate);
       
       // If no input, use deal.value (which is USD)
       if (!inputVal) {
-          console.log('- No input value, using deal.value:', deal.value);
+          console.log('No input value, using deal.value:', deal.value);
+          console.log('=== DEBUG getValueForSave END ===');
           return deal.value;
       }
       
       const numVal = parseFloat(inputVal);
-      console.log('- Parsed numVal:', numVal);
+      console.log('Parsed numVal:', numVal);
+      console.log('isNaN(numVal):', isNaN(numVal));
       
       // If current mode is ETB, convert back to USD
       let result;
       if (currency === 'ETB') {
           result = Math.round(numVal / exchangeRate);
-          console.log('- Converting ETB to USD:', numVal, '/', exchangeRate, '=', result);
+          console.log('Converting ETB to USD:', numVal, '/', exchangeRate, '=', result);
       } else {
           result = Math.round(numVal);
-          console.log('- Using USD value directly:', result);
+          console.log('Using USD value directly:', result);
       }
       
-      console.log('- Final getValueForSave result:', result);
+      console.log('Final getValueForSave result:', result);
+      console.log('=== DEBUG getValueForSave END ===');
       return result;
   };
   
@@ -395,13 +415,18 @@ const OfferDeal: React.FC = () => {
   // ... (rest of handlers)
 
   const handleSendOffer = async (deal: any) => {
+      console.log('=== DEBUG handleSendOffer START ===');
+      console.log('Deal object:', JSON.stringify(deal, null, 2));
+      
       const amountUSD = getValueForSave(deal);
       
       // Debug logging
-      console.log('DEBUG: handleSendOffer called for deal:', deal.company);
-      console.log('DEBUG: getValueForSave returned:', amountUSD);
-      console.log('DEBUG: inputValues for this deal:', inputValues[deal.id]);
-      console.log('DEBUG: deal.value from database:', deal.value);
+      console.log('handleSendOffer called for deal:', deal.company);
+      console.log('getValueForSave returned:', amountUSD);
+      console.log('inputValues for this deal:', inputValues[deal.id]);
+      console.log('deal.value from database:', deal.value);
+      console.log('amountUSD type:', typeof amountUSD);
+      console.log('amountUSD value:', amountUSD);
       
       // Default to email, then website, then social
       const defaultChannel = deal.leadEmail ? 'email' : (deal.leadWebsite ? 'website' : deal.leadSocials?.[0]?.platform || 'email');
@@ -409,14 +434,15 @@ const OfferDeal: React.FC = () => {
 
       // Check if contract value is entered
       if (!amountUSD || amountUSD <= 0) {
-          console.log('DEBUG: Contract value validation failed - amountUSD:', amountUSD);
+          console.log('Contract value validation failed - amountUSD:', amountUSD);
           setNotificationType('archive');
           setNotification(`Please enter a contract value for ${deal.company} before sending the offer.`);
           setTimeout(() => setNotification(null), 4000);
+          console.log('=== DEBUG handleSendOffer END (VALIDATION FAILED) ===');
           return;
       }
  
-      console.log('DEBUG: Contract value validation passed - amountUSD:', amountUSD);
+      console.log('Contract value validation passed - amountUSD:', amountUSD);
 
       try {
           // Route to external channel based on selection
@@ -442,33 +468,63 @@ const OfferDeal: React.FC = () => {
           // Update the offer table to track the channel used
           if (!supabase) {
               console.error('Supabase client not initialized');
+              console.log('=== DEBUG handleSendOffer END (NO SUPABASE) ===');
               return;
           }
           
+          // Validate amountUSD before proceeding
+          if (typeof amountUSD !== 'number' || isNaN(amountUSD)) {
+              console.error('=== INVALID amountUSD ===');
+              console.error('amountUSD is not a valid number:', amountUSD, typeof amountUSD);
+              setNotificationType('archive');
+              setNotification(`Invalid contract value for ${deal.company}. Please enter a valid number.`);
+              setTimeout(() => setNotification(null), 4000);
+              return;
+          }
+
+          // Only update fields that exist in the offers table schema
+          // The offers table only has: id, lead_id, title, stage, value, probability, created_at, updated_at
           const updateData = {
-              contact_channel: channel,
-              contact_url: externalUrl,
-              last_contacted: new Date().toISOString(),
               value: amountUSD
           };
           
-          console.log('DEBUG: Updating offer with data:', updateData);
-          console.log('DEBUG: Offer ID to update:', deal.id);
+          console.log('=== DATABASE UPDATE START ===');
+          console.log('Updating offer with data:', JSON.stringify(updateData, null, 2));
+          console.log('Offer ID to update:', deal.id);
+          console.log('amountUSD being saved:', amountUSD);
+          console.log('amountUSD type:', typeof amountUSD);
           
           const { data: updateResult, error: updateError } = await supabase!
-              .from('offers')
-              .update(updateData)
-              .eq('id', deal.id)
-              .select();
+            .from('offers')
+            .update(updateData)
+            .eq('id', deal.id)
+            .select();
           
-          console.log('DEBUG: Update result:', updateResult);
-          console.log('DEBUG: Update error:', updateError);
+          console.log('=== DATABASE UPDATE RESULT ===');
+          console.log('Update result:', JSON.stringify(updateResult, null, 2));
+          console.log('Update error:', JSON.stringify(updateError, null, 2));
+          console.log('Update data sent:', JSON.stringify(updateData, null, 2));
           
           if (updateError) {
-              console.error('Failed to update offer with channel info:', updateError);
+              console.error('=== DATABASE UPDATE FAILED ===');
+              console.error('Failed to update offer value:', updateError);
+              console.error('Error details:', {
+                  message: updateError.message,
+                  code: updateError.code,
+                  details: updateError.details,
+                  hint: updateError.hint
+              });
+              setNotificationType('archive');
+              setNotification(`Failed to save contract value for ${deal.company}: ${updateError.message}`);
+              setTimeout(() => setNotification(null), 5000);
+              return;
           } else {
-              console.log('DEBUG: Successfully updated offer with value:', amountUSD);
+              console.log('=== DATABASE UPDATE SUCCESS ===');
+              console.log('Successfully updated offer with value:', amountUSD);
+              console.log('Updated offer record:', JSON.stringify(updateResult?.[0], null, 2));
+              console.log('Value in updated record:', updateResult?.[0]?.value);
           }
+          console.log('=== DATABASE UPDATE END ===');
           
           // Update offer stage to 'Contacted' to reflect that we've reached out
           const offerSuccess = await updateOfferStage(deal.id, 'Contacted');
@@ -479,16 +535,43 @@ const OfferDeal: React.FC = () => {
                   await updateLeadStatus(deal.leadId, 'Contacted');
               }
               
+              // Create financial record for this offer
+              console.log('=== CREATING FINANCIAL RECORD ===');
+              console.log('Creating financial record for lead:', deal.leadId);
+              console.log('Offer ID:', deal.id);
+              console.log('Contract value:', amountUSD);
+              console.log('Currency:', currency);
+              
+              const financialResult = await createLeadFinancial(
+                  deal.leadId,
+                  deal.id, // Link to the offer
+                  amountUSD, // Contract value in USD
+                  currency, // Use selected currency (USD or ETB)
+                  'Net 30', // Default payment terms
+                  'Fixed', // Default contract type
+                  `Offer sent via ${channel} on ${new Date().toLocaleDateString()}`
+              );
+              
+              if (financialResult.success) {
+                  console.log('Financial record created successfully');
+              } else {
+                  console.error('Failed to create financial record:', financialResult.error);
+                  // Don't fail the whole operation, just log the error
+              }
+              
               setNotificationType('success');
               setNotification(`Offer sent via ${channel}: ${deal.company} - $${amountUSD.toLocaleString()}`);
               setTimeout(() => setNotification(null), 4000);
           }
       } catch (error) {
+          console.error('=== ERROR IN handleSendOffer ===');
           console.error('Error sending offer:', error);
+          console.error('Error stack:', error instanceof Error ? error.stack : 'No stack available');
           setNotificationType('archive');
           setNotification(`Failed to send offer via ${channel}.`);
           setTimeout(() => setNotification(null), 4000);
       }
+      console.log('=== DEBUG handleSendOffer END ===');
   };
 
 
@@ -839,6 +922,29 @@ const OfferDeal: React.FC = () => {
                   if (success) {
                     // Update lead status to reflect offer creation
                     await updateLeadStatus(selectedLeadId, 'Negotiations');
+                    
+                    // Get the newly created offer to link with financial record
+                    const offers = await getOffers();
+                    const newOffer = offers.find(o => o.leadId === selectedLeadId);
+                    
+                    if (newOffer) {
+                        // Create financial record for this new offer
+                        const financialResult = await createLeadFinancial(
+                            selectedLeadId,
+                            newOffer.id, // Link to the new offer
+                            parseInt(newOfferValue), // Contract value
+                            'USD', // Default currency for new offers
+                            'Net 30', // Default payment terms
+                            'Fixed', // Default contract type
+                            `Offer created on ${new Date().toLocaleDateString()}`
+                        );
+                        
+                        if (financialResult.success) {
+                            console.log('Financial record created for new offer');
+                        } else {
+                            console.error('Failed to create financial record for new offer:', financialResult.error);
+                        }
+                    }
                     
                     // Signal to refresh offers
                     window.dispatchEvent(new StorageEvent('storage', { key: 'offersUpdated' }));

@@ -20,9 +20,10 @@ import {
   ArrowRight,
   Clock,
   Loader2,
-  RotateCcw
+  RotateCcw,
+  Archive
 } from 'lucide-react';
-import { getDeals, getOffers, getActivities, logActivity, getConsolidatedDeals, syncConsolidatedDeals, createDeal, createDirectDeal, getLeads, supabase } from '../lib/database/supabase';
+import { getDeals, getOffers, getActivities, logActivity, getConsolidatedDeals, syncConsolidatedDeals, createDeal, createDirectDeal, getLeads, getClosedLeads, supabase, addClosedLead } from '../lib/database/supabase';
 
 const Pipeline: React.FC = () => {
   const [viewMode, setViewMode] = useState<'board' | 'timeline'>('board');
@@ -183,6 +184,92 @@ const Pipeline: React.FC = () => {
     }
   };
 
+  // Archive deal to closed_leads and mark as Won
+  const handleArchiveDeal = async (deal: any) => {
+    if (!deal.leadId) {
+      console.error('Cannot archive deal: no leadId found');
+      return;
+    }
+
+    try {
+      // Calculate duration from lead creation to now
+      const leadData = await getLeadById(deal.leadId);
+      let duration = 0;
+      if (leadData?.createdAt) {
+        duration = Math.ceil((new Date().getTime() - new Date(leadData.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+      }
+
+      // Add to closed_leads table
+      const archiveSuccess = await addClosedLead(
+        deal.leadId,
+        deal.company,
+        duration,
+        leadData?.rating || 0,
+        deal.value || 0,
+        'Converted'
+      );
+
+      if (archiveSuccess) {
+        // Update the deal stage to 'Won' in offers table if it exists there
+        if (deal.id.startsWith('offer_')) {
+          const offerId = deal.id.replace('offer_', '');
+          if (supabase) {
+            await supabase
+              .from('offers')
+              .update({ stage: 'Won' })
+              .eq('id', offerId);
+          }
+        }
+
+        // Refresh data
+        const fetchData = async () => {
+          setLoading(true);
+          try {
+            const consolidatedDealsData = await getConsolidatedDeals();
+            const offersData = await getOffers();
+            const activitiesData = await getActivities(20);
+            
+            setDeals(consolidatedDealsData);
+            setOffers(offersData);
+            setActivities(activitiesData);
+          } catch (error) {
+            console.error('Error fetching pipeline data:', error);
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        fetchData();
+      }
+    } catch (error) {
+      console.error('Error archiving deal:', error);
+    }
+  };
+
+  // Helper function to get lead by ID
+  const getLeadById = async (leadId: string) => {
+    if (!supabase) return null;
+    
+    const { data, error } = await supabase
+      .from('leads')
+      .select(`
+        *,
+        businesses (*)
+      `)
+      .eq('id', leadId)
+      .single();
+    
+    if (error || !data) {
+      console.error('Error fetching lead:', error);
+      return null;
+    }
+    
+    return {
+      ...data,
+      business: data.businesses || {}
+    };
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -192,15 +279,37 @@ const Pipeline: React.FC = () => {
         const offersData = await getOffers();
         const activitiesData = await getActivities(20);
         
-        console.log(`Pipeline: Fetched ${consolidatedDealsData.length} consolidated deals from multiple sources`);
+        // Also fetch closed leads to show in Won stage
+        const closedLeadsData = await getClosedLeads();
+        
+        // Transform closed leads to deal format for Won stage
+        const archivedDeals = closedLeadsData
+          .filter(lead => lead.outcome === 'Converted') // Only show successfully archived leads
+          .map(lead => ({
+            id: `closed_${lead.id}`, // Prefix to avoid ID conflicts
+            leadId: lead.id,
+            title: `Archived: ${lead.business.name}`,
+            company: lead.business.name,
+            value: lead.pipelineValue || lead.estimatedValue || 0,
+            stage: 'Won',
+            lastContact: lead.lastContact || lead.createdAt,
+            probability: 100, // Archived leads are 100% successful
+            originalLead: lead
+          }));
+        
+        // Combine consolidated deals and archived leads
+        const allDeals = [...consolidatedDealsData, ...archivedDeals];
+        
+        console.log(`Pipeline: Fetched ${allDeals.length} total deals (${consolidatedDealsData.length} consolidated + ${archivedDeals.length} archived)`);
         console.log('Consolidated deals breakdown:', {
           new: consolidatedDealsData.filter(d => d.stage === 'New').length,
           qualified: consolidatedDealsData.filter(d => d.stage === 'Qualified').length,
           contacted: consolidatedDealsData.filter(d => d.stage === 'Contacted').length,
-          proposal: consolidatedDealsData.filter(d => d.stage === 'Proposal').length
+          proposal: consolidatedDealsData.filter(d => d.stage === 'Proposal').length,
+          won: archivedDeals.length
         });
         
-        setDeals(consolidatedDealsData);
+        setDeals(allDeals);
         setOffers(offersData);
         setActivities(activitiesData);
         
@@ -724,6 +833,14 @@ const Pipeline: React.FC = () => {
                        >
                          <Phone className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5" /> Call
                        </button>
+                       {selectedDeal.stage === 'Won' && (
+                         <button
+                           onClick={() => handleArchiveDeal(selectedDeal)}
+                           className="flex-1 py-2 flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-medium text-emerald-600 hover:bg-emerald-100 transition-colors"
+                         >
+                           <Archive className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5" /> Archive to Closed Leads
+                         </button>
+                       )}
                      </div>
                    </div>
 

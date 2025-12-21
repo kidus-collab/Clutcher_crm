@@ -201,6 +201,14 @@ const Outreach: React.FC = () => {
       setEmailBody(`Hi ${activeLead.business.name},\n\nI saw that you are working on interesting projects. I'd love to connect and discuss how we can help.\n\nBest,\n[Your Name]`);
       setFollowUpNote('');
       setFollowUpDate('');
+      
+      // Debug logging for activeLead changes
+      console.log('DEBUG: activeLead updated:', {
+        id: activeLead.id,
+        businessName: activeLead.business.name,
+        rating: activeLead.rating,
+        outcome: activeLead.outcome
+      });
   }, [activeLead]);
 
   const handleSchedule = async () => {
@@ -382,22 +390,35 @@ const Outreach: React.FC = () => {
   const [webhookProgress, setWebhookProgress] = useState(0);
 
   const handleOutcome = async (newStatus: string) => {
-      if (!activeLead) return;
+      console.log('=== DEBUG handleOutcome START ===');
+      console.log('DEBUG: newStatus:', newStatus);
+      console.log('DEBUG: activeLead:', activeLead);
+      console.log('DEBUG: activeLead.rating:', activeLead?.rating);
+      console.log('DEBUG: activeLead.outcome:', activeLead?.outcome);
+      
+      if (!activeLead) {
+          console.log('DEBUG: No active lead, returning');
+          return;
+      }
       
       // Strict Validation for Conversion
       if (newStatus === 'Converted') {
+          console.log('DEBUG: Validation for Conversion started');
           if (!activeLead.rating) {
+              console.log('DEBUG: Rating validation failed - no rating');
               setNotificationMsg('Please rate the interaction quality first.');
               setShowNotification(true);
               setTimeout(() => setShowNotification(false), 3000);
               return;
           }
           if (!activeLead.outcome || (activeLead.outcome !== 'Good Fit' && activeLead.outcome !== 'Bad Fit' && activeLead.outcome !== 'Interested')) {
+              console.log('DEBUG: Outcome validation failed - invalid outcome:', activeLead.outcome);
               setNotificationMsg('Please select an outcome (Good Fit / Bad Fit) first.');
               setShowNotification(true);
               setTimeout(() => setShowNotification(false), 3000);
               return;
           }
+          console.log('DEBUG: Validation passed');
       }
 
       // Track outcome action in database
@@ -410,18 +431,17 @@ const Outreach: React.FC = () => {
       );
       
       if (newStatus === 'Converted') {
-          console.log('DEBUG: Converting lead - adding to offers and closed_leads tables');
-          // Calculate duration from when lead was added to when it was closed
-          const duration = activeLead.createdAt ?
-            Math.ceil((new Date().getTime() - new Date(activeLead.createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
-
-          // Add entry to offers table
+          console.log('DEBUG: Converting lead - transferring from outreach_tracking to offers table');
+          
+          // Add entry to offers table with rating and fit status
           const offerSuccess = await createOffer(
             activeLead.id,
             `Deal with ${activeLead.business.name}`,
             0,
             'Proposal',
-            10
+            10,
+            activeLead.rating || 0, // log_quality_rating
+            activeLead.outcome || 'Good Fit' // bad_fit_good_fit
           );
           
           if (!offerSuccess) {
@@ -430,20 +450,11 @@ const Outreach: React.FC = () => {
             return;
           }
 
-          // Add entry to closed_leads table
-          const closedSuccess = await addClosedLead(
-            activeLead.id,
-            activeLead.business.name,
-            duration,
-            activeLead.rating || 0,
-            activeLead.estimatedValue || 0,
-            activeLead.outcome || 'Converted'
-          );
-          
-          if (!closedSuccess) {
-            setNotificationMsg('Failed to add closed lead.');
-            setShowNotification(true);
-            return;
+          // Delete from outreach_tracking table as requested
+          const deleteSuccess = await deleteOutreachTracking(activeLead.id);
+          if (!deleteSuccess) {
+            console.warn('Warning: Offer created but failed to remove lead from Outreach Tracking list');
+            // Don't return error, continue with success flow
           }
 
           // Signal for UI update
@@ -855,9 +866,28 @@ const Outreach: React.FC = () => {
                                   </button>
                                   <button
                                      onClick={() => {
+                                         console.log('DEBUG: Good Fit button clicked');
+                                         console.log('DEBUG: Current activeLead:', activeLead);
+                                         console.log('DEBUG: Current outcome before update:', activeLead.outcome);
+                                         
                                          updateLeadStatus(activeLead.id, activeLead.status, 'Good Fit').then((result) => {
+                                             console.log('DEBUG: updateLeadStatus result:', result);
                                              if (result.success) {
-                                                 setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, outcome: 'Good Fit' } : l));
+                                                 console.log('DEBUG: Updating leads array with Good Fit outcome');
+                                                 setLeads(prev => {
+                                                     const updatedLeads = prev.map(l => l.id === activeLead.id ? { ...l, outcome: 'Good Fit' } : l);
+                                                     console.log('DEBUG: Updated leads array:', updatedLeads);
+                                                     return updatedLeads;
+                                                 });
+                                                 
+                                                 // Force re-render by triggering a state update
+                                                 setTimeout(() => {
+                                                     console.log('DEBUG: Forced re-render triggered');
+                                                     // Force component to re-evaluate activeLead
+                                                     setSelectedLeadId(activeLead.id);
+                                                 }, 100);
+                                             } else {
+                                                 console.error('DEBUG: Failed to update lead status:', result.error);
                                              }
                                          });
                                      }}

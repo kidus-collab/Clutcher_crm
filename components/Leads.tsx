@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import GlassCard from './ui/GlassCard';
 import { motion } from 'framer-motion';
 import Skeleton from './ui/Skeleton';
-import { 
-  Search, 
-  Filter, 
+import {
+  Search,
+  Filter,
   MoreVertical,
   Globe,
   Mail,
@@ -35,7 +35,31 @@ import {
   FileSignature,
   PlusCircle,
   Building,
-  UserPlus
+  UserPlus,
+  Eye,
+  Handshake,
+  CheckCheck,
+  MessageSquare,
+  Phone,
+  Calendar,
+  MapPin,
+  Briefcase,
+  Award,
+  Flag,
+  RefreshCw,
+  Settings,
+  Download,
+  Upload,
+  Edit,
+  Save,
+  Copy,
+  Share,
+  ExternalLink,
+  User,
+  Building2,
+  Contact,
+  Megaphone,
+  PenTool
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getLeads, updateLeadStatus, deleteLead, createOffer, saveBusiness, addToLeads, getOutreachTrackingLeads, getOffersLeads, getClosedLeads, supabase, logOutreachTracking } from '../lib/database/supabase';
@@ -670,7 +694,7 @@ const Leads: React.FC = () => {
                 onClick={() => setShowAddLeadModal(true)}
                 className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg sm:rounded-xl font-bold hover:from-indigo-600 hover:to-purple-700 transition-all mt-3 sm:mt-4 text-sm sm:text-base border-none"
             >
-                <PlusCircle className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 lg:w-6 lg:h-6" />
+                <UserPlus className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 lg:w-6 lg:h-6" />
                 <span>Add Lead</span>
             </button>
           </div>
@@ -916,7 +940,7 @@ const Leads: React.FC = () => {
                                     </div>
                                     <div className="flex items-center justify-between pt-4 border-t border-slate-100/60 mt-2">
                                         <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
-                                            <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 lg:w-4 lg:h-4" /> {formatDateTime(lead.lastContact)}
+                                            <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 lg:w-4 lg:h-4" /> {formatDateTime(lead.lastContact)}
                                         </div>
                                         <div className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all">
                                             {lead.status === 'New' ? (
@@ -928,14 +952,16 @@ const Leads: React.FC = () => {
                                                 }}
                                                 className="flex items-center gap-1 hover:text-indigo-800 transition-colors"
                                               >
-                                                Outreach <ArrowRight className="w-3 h-3" />
+                                                <Megaphone className="w-3 h-3" /> Outreach
                                               </button>
+                                            ) : lead.status === 'No Reply' ? (
+                                              <><RefreshCw className="w-3 h-3" /> Follow Up</>
                                             ) : lead.status === 'Negotiations' ? (
-                                              <>View Offers <ArrowRight className="w-3 h-3" /></>
+                                              <><Handshake className="w-3 h-3" /> View Offers</>
                                             ) : lead.status === 'Converted' ? (
-                                              <>View Closed <ArrowRight className="w-3 h-3" /></>
+                                              <><CheckCheck className="w-3 h-3" /> View Closed</>
                                             ) : (
-                                              <>Outreach <ArrowRight className="w-3 h-3" /></>
+                                              <><Eye className="w-3 h-3" /> View Closed</>
                                             )}
                                         </div>
                                     </div>
@@ -1065,7 +1091,7 @@ const Leads: React.FC = () => {
                     <div className="flex justify-between items-center mb-8">
                         <div>
                             <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                                <Zap className="w-4 h-4 text-indigo-500" /> Interaction Quality Funnel
+                                <Target className="w-4 h-4 text-indigo-500" /> Interaction Quality Funnel
                             </h3>
                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Lifecycle Conversion Analysis</p>
                         </div>
@@ -1097,7 +1123,7 @@ const Leads: React.FC = () => {
                 <div className="space-y-6">
                     <GlassCard className="p-6 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white border-none">
                         <div className="flex items-center gap-3 mb-4 opacity-80 uppercase text-[10px] font-bold tracking-[0.2em]">
-                            <TrendingUp className="w-4 h-4" /> Growth
+                            <Award className="w-4 h-4" /> Performance
                         </div>
                         <div className="text-4xl font-bold tracking-tighter mb-1">
                             {columns.New.length + columns['No Reply'].length > 0
@@ -1199,7 +1225,7 @@ const Leads: React.FC = () => {
                     <div className="flex justify-between items-center mb-8">
                         <div>
                             <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                                <Activity className="w-4 h-4 text-rose-500" /> Outreach Intensity & Yield
+                                <MessageSquare className="w-4 h-4 text-rose-500" /> Outreach Intensity & Yield
                             </h3>
                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Correlation of Daily Touches to Converted Interest</p>
                         </div>

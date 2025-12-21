@@ -32,8 +32,8 @@ export async function saveBusiness(business: Omit<Business, 'id'>): Promise<Busi
   
   try {
     // Enhanced redundancy check: check for existing business by website, name, or email
-    let existingBusiness = null;
-    let selectError = null;
+    let existingBusiness: any = null;
+    let selectError: any = null;
     
     // Check by website (most specific)
     if (business.website) {
@@ -71,7 +71,7 @@ export async function saveBusiness(business: Omit<Business, 'id'>): Promise<Busi
         .maybeSingle();
       if (result.data) {
         existingBusiness = result.data;
-        console.warn('Business found with same name but different email/website:', existingBusiness.id);
+        console.warn('Business found with same name but different email/website:', existingBusiness?.id);
       }
       if (result.error) {
         selectError = result.error;
@@ -80,7 +80,7 @@ export async function saveBusiness(business: Omit<Business, 'id'>): Promise<Busi
     
     if (selectError) {
       console.error('Error checking for existing business:', selectError);
-      throw new Error(`Database Error: ${selectError.message}`);
+      throw new Error(`Database Error: ${selectError?.message}`);
     }
     
     let data;
@@ -376,9 +376,24 @@ export async function updateLeadStatus(
   outcome?: Lead['outcome'],
   rating?: number
 ): Promise<{ success: boolean; error?: string }> {
-  if (!supabase) return { success: false, error: 'Database client not initialized' };
+  console.log('=== updateLeadStatus START ===');
+  console.log('Updating lead status with:', { leadId, status, outcome, rating });
   
-  const updates: any = { status, last_contact: new Date().toISOString() };
+  if (!supabase) {
+    console.log('Supabase client not initialized');
+    console.log('=== updateLeadStatus END (NO SUPABASE) ===');
+    return { success: false, error: 'Database client not initialized' };
+  }
+  
+  // Validate leadId format
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(leadId)) {
+    console.error('Invalid leadId format:', leadId);
+    console.log('=== updateLeadStatus END (INVALID ID) ===');
+    return { success: false, error: 'Invalid lead ID format' };
+  }
+  
+  const updates: any = { status };
   if (outcome) {
     updates.outcome = outcome;
   }
@@ -386,20 +401,44 @@ export async function updateLeadStatus(
     updates.rating = rating;
   }
   
+  console.log('Updates to apply:', JSON.stringify(updates, null, 2));
   console.log(`Updating lead ${leadId} status to ${status}...`);
   
-  const { error } = await supabase
-    .from('leads')
-    .update(updates)
-    .eq('id', leadId);
-  
-  if (error) {
-    console.error('Error updating lead status:', error);
-    return { success: false, error: error.message };
+  try {
+    const { data, error } = await supabase
+      .from('leads')
+      .update(updates)
+      .eq('id', leadId)
+      .select();
+    
+    console.log('=== LEAD UPDATE RESULT ===');
+    console.log('Update result:', JSON.stringify(data, null, 2));
+    console.log('Update error:', JSON.stringify(error, null, 2));
+    
+    if (error) {
+      console.error('=== LEAD UPDATE FAILED ===');
+      console.error('Error updating lead status:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+      console.log('=== updateLeadStatus END (ERROR) ===');
+      return { success: false, error: error.message };
+    }
+    
+    console.log('=== LEAD UPDATE SUCCESS ===');
+    console.log('Lead status updated successfully');
+    console.log('Updated lead record:', JSON.stringify(data?.[0], null, 2));
+    console.log('=== updateLeadStatus END (SUCCESS) ===');
+    return { success: true };
+  } catch (dbError) {
+    console.error('=== LEAD UPDATE EXCEPTION ===');
+    console.error('Database operation exception:', dbError);
+    console.log('=== updateLeadStatus END (EXCEPTION) ===');
+    return { success: false, error: dbError instanceof Error ? dbError.message : 'Unknown error' };
   }
-  
-  console.log('Lead status updated successfully');
-  return { success: true };
 }
 
 /**
@@ -717,23 +756,51 @@ export async function createFollowUpTask(
   scheduledDate: string,
   priority: 'Low' | 'Medium' | 'High' = 'Medium'
 ): Promise<boolean> {
-  if (!supabase) return false;
+  console.log('DEBUG: createFollowUpTask called with:', {
+    leadId,
+    taskTitle,
+    taskNotes,
+    scheduledDate,
+    priority
+  });
   
-  const { error } = await supabase
-    .from('follow_up_tasks')
-    .insert({
-      lead_id: leadId,
-      task_title: taskTitle,
-      task_notes: taskNotes,
-      scheduled_date: scheduledDate,
-      status: 'Pending',
-      priority
-    });
-    
-  if (error) {
-    console.error('Error creating follow-up task:', error);
+  if (!supabase) {
+    console.log('DEBUG: Supabase client not initialized');
     return false;
   }
+  
+  // VALIDATION: Check if leadId is a valid UUID or empty (for general tasks)
+  if (leadId && leadId !== '') {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(leadId)) {
+      console.error('DEBUG: Invalid leadId format, expected UUID or empty string:', leadId);
+      return false;
+    }
+  }
+  
+  const taskData = {
+    lead_id: leadId || null, // Convert empty string to null for database
+    task_title: taskTitle,
+    task_notes: taskNotes,
+    scheduled_date: scheduledDate,
+    status: 'Pending',
+    priority
+  };
+  
+  console.log('DEBUG: Inserting task data:', taskData);
+  
+  const { data, error } = await supabase
+    .from('follow_up_tasks')
+    .insert(taskData)
+    .select();
+  
+  if (error) {
+    console.error('DEBUG: Error creating follow-up task:', error);
+    console.error('DEBUG: Error details:', JSON.stringify(error, null, 2));
+    return false;
+  }
+  
+  console.log('DEBUG: Task created successfully with ID:', data?.[0]?.id);
   return true;
 }
 
@@ -749,35 +816,93 @@ export async function createOffer(
   title: string,
   value?: number,
   stage: 'Proposal' | 'Qualified' | 'Contacted' | 'Won' | 'Lost' = 'Proposal',
-  probability: number = 0
+  probability: number = 0,
+  logQualityRating?: number,
+  badFitGoodFit?: string
 ): Promise<{ success: boolean; duplicate?: boolean }> {
-  if (!supabase) return { success: false };
+  console.log('=== DEBUG createOffer START ===');
+  console.log('createOffer called with:', {
+    leadId,
+    title,
+    value,
+    stage,
+    probability
+  });
+  
+  if (!supabase) {
+    console.log('Supabase client not initialized');
+    console.log('=== DEBUG createOffer END (NO SUPABASE) ===');
+    return { success: false };
+  }
   
   // Check for existing offer
-  const { data: existing } = await supabase
+  console.log('Checking for existing offer with lead_id:', leadId);
+  const { data: existing, error: checkError } = await supabase
     .from('offers')
     .select('id')
     .eq('lead_id', leadId)
     .single();
     
+  if (checkError) {
+    console.log('Error checking for existing offer:', checkError);
+  }
+    
   if (existing) {
+    console.log('Existing offer found:', existing);
+    console.log('=== DEBUG createOffer END (DUPLICATE) ===');
     return { success: false, duplicate: true };
   }
   
-  const { error } = await supabase
-    .from('offers')
-    .insert({
-      lead_id: leadId,
-      title,
-      value: value || 0,
-      stage,
-      probability
-    });
-    
-  if (error) {
-    console.error('Error creating offer:', error, error.message, error.details);
+  // Validate inputs
+  if (!leadId || !title) {
+    console.error('=== INVALID INPUTS ===');
+    console.error('Missing required fields:', { leadId, title });
+    console.log('=== DEBUG createOffer END (INVALID INPUTS) ===');
     return { success: false };
   }
+
+  const insertData = {
+    lead_id: leadId,
+    title,
+    value: value || 0,
+    stage,
+    probability,
+    log_quality_rating: logQualityRating || 0,
+    bad_fit_good_fit: badFitGoodFit || 'Pending'
+  };
+  
+  console.log('=== DATABASE INSERT START ===');
+  console.log('Inserting offer with data:', JSON.stringify(insertData, null, 2));
+  console.log('Value being inserted:', value || 0);
+  console.log('Value type:', typeof (value || 0));
+  
+  const { data, error } = await supabase
+    .from('offers')
+    .insert(insertData)
+    .select();
+  
+  console.log('=== DATABASE INSERT RESULT ===');
+  console.log('Insert result:', JSON.stringify(data, null, 2));
+  console.log('Insert error:', JSON.stringify(error, null, 2));
+  
+  if (error) {
+    console.error('=== DATABASE INSERT FAILED ===');
+    console.error('Error creating offer:', error, error.message, error.details);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint
+    });
+    console.error('DEBUG: createOffer insert data:', insertData);
+    console.log('=== DEBUG createOffer END (ERROR) ===');
+    return { success: false };
+  }
+  
+  console.log('=== DATABASE INSERT SUCCESS ===');
+  console.log('Successfully created offer with ID:', data?.[0]?.id);
+  console.log('Value in created record:', data?.[0]?.value);
+  console.log('=== DEBUG createOffer END (SUCCESS) ===');
   return { success: true };
 }
 
@@ -827,6 +952,8 @@ export async function getOffers(): Promise<any[]> {
       value: offer.value,
       stage: offer.stage,
       probability: offer.probability,
+      logQualityRating: offer.log_quality_rating,
+      badFitGoodFit: offer.bad_fit_good_fit,
       createdAt: offer.created_at,
       updatedAt: offer.updated_at,
       lead: {
@@ -1013,28 +1140,31 @@ export async function getOutreachTrackingLeads(): Promise<any[]> {
     return true;
   });
   
-  return uniqueTrackingData.map(track => ({
-    id: track.leads?.id || track.id,
-    business: track.leads?.businesses ? {
-      id: track.leads.businesses.id,
-      name: track.leads.businesses.name,
-      website: track.leads.businesses.website || '',
-      email: track.leads.businesses.email || '',
-      phone: track.leads.businesses.phone || '',
-      socials: (track.leads.businesses.social_profiles || []).map((sp: any) => ({
-        platform: sp.platform,
-        url: sp.url,
-        handle: sp.handle,
-      })),
-    } : { name: 'Unknown Business' },
-    status: 'No Reply',
-    source: 'Outreach Tracking',
-    lastContact: track.timestamp || 'Never',
-    tags: [],
-    rating: 0,
-    outcome: 'No Reply',
-    createdAt: track.created_at,
-  }));
+  return uniqueTrackingData.map(track => {
+    const lead = track.leads || {};
+    return {
+      id: lead.id || track.id,
+      business: lead.businesses ? {
+        id: lead.businesses.id,
+        name: lead.businesses.name,
+        website: lead.businesses.website || '',
+        email: lead.businesses.email || '',
+        phone: lead.businesses.phone || '',
+        socials: (lead.businesses.social_profiles || []).map((sp: any) => ({
+          platform: sp.platform,
+          url: sp.url,
+          handle: sp.handle,
+        })),
+      } : { name: 'Unknown Business' },
+      status: 'No Reply',
+      source: 'Outreach Tracking',
+      lastContact: track.timestamp || 'Never',
+      tags: [],
+      rating: lead.rating || 0, // Use actual rating from leads table
+      outcome: lead.outcome || 'No Reply', // Use actual outcome from leads table
+      createdAt: track.created_at,
+    };
+  });
 }
 
 /**
@@ -1564,4 +1694,187 @@ export async function syncConsolidatedDeals(): Promise<boolean> {
     console.error('Error syncing consolidated deals:', error);
     return false;
   }
+}
+
+// ============================================
+// RESET CRM OPERATIONS
+// ============================================
+
+/**
+ * Reset CRM - Delete all data from all tables
+ * This will completely empty the database
+ */
+export async function resetCRM(): Promise<{ success: boolean; error?: string }> {
+  if (!supabase) {
+    return { success: false, error: 'Database client not initialized' };
+  }
+  
+  try {
+    console.log('=== RESET CRM START ===');
+    
+    // List of tables to clear in order (respecting foreign key constraints)
+    const tables = [
+      'closed_leads',
+      'outreach_tracking',
+      'follow_up_tasks',
+      'offers',
+      'activities',
+      'lead_tags',
+      'deals',
+      'leads',
+      'social_profiles',
+      'businesses'
+    ];
+    
+    // Delete all data from each table
+    for (const table of tables) {
+      console.log(`Clearing table: ${table}`);
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all records
+      
+      if (error) {
+        console.error(`Error clearing ${table}:`, error);
+        return { success: false, error: `Failed to clear ${table}: ${error.message}` };
+      }
+    }
+    
+    console.log('=== RESET CRM SUCCESS ===');
+    return { success: true };
+    
+  } catch (error) {
+    console.error('Error resetting CRM:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred'
+    };
+  }
+}
+
+// ============================================
+// LEAD FINANCIALS OPERATIONS
+// ============================================
+
+/**
+ * Create a lead financial record
+ */
+export async function createLeadFinancial(
+  leadId: string,
+  offerId?: string,
+  contractValue?: number,
+  currency: string = 'USD',
+  paymentTerms: string = 'Net 30',
+  contractType: string = 'Fixed',
+  notes?: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!supabase) return { success: false, error: 'Database client not initialized' };
+  
+  const { data, error } = await supabase
+    .from('lead_financials')
+    .insert({
+      lead_id: leadId,
+      offer_id: offerId || null,
+      contract_value: contractValue || 0,
+      currency,
+      payment_terms: paymentTerms,
+      contract_type: contractType,
+      status: 'Draft',
+      notes
+    })
+    .select()
+    .single();
+  
+  if (error) {
+    console.error('Error creating lead financial:', error);
+    return { success: false, error: error.message };
+  }
+  
+  console.log('Lead financial created successfully:', data);
+  return { success: true };
+}
+
+/**
+ * Get lead financial records
+ */
+export async function getLeadFinancials(leadId?: string): Promise<any[]> {
+  if (!supabase) return [];
+  
+  let query = supabase
+    .from('lead_financials')
+    .select(`
+      *,
+      leads (
+        id,
+        businesses (
+          id,
+          name,
+          website,
+          email
+        )
+      ),
+      offers (
+        id,
+        title,
+        stage
+      )
+    `)
+    .order('created_at', { ascending: false });
+  
+  if (leadId) {
+    query = query.eq('lead_id', leadId);
+  }
+  
+  const { data, error } = await query;
+  
+  if (error) {
+    console.error('Error fetching lead financials:', error);
+    return [];
+  }
+  
+  return data || [];
+}
+
+/**
+ * Update lead financial status
+ */
+export async function updateLeadFinancialStatus(
+  financialId: string,
+  status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected' | 'Negotiating'
+): Promise<boolean> {
+  if (!supabase) return false;
+  
+  const { error } = await supabase
+    .from('lead_financials')
+    .update({
+      status,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', financialId);
+  
+  if (error) {
+    console.error('Error updating lead financial status:', error);
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Delete lead financial record
+ */
+export async function deleteLeadFinancial(financialId: string): Promise<boolean> {
+  if (!supabase) return false;
+  
+  const { error } = await supabase
+    .from('lead_financials')
+    .delete()
+    .eq('id', financialId);
+  
+  if (error) {
+    console.error('Error deleting lead financial:', error);
+    return false;
+  }
+  
+  return true;
 }

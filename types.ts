@@ -29,6 +29,9 @@ export interface Lead {
   createdAt?: string;
   estimatedValue?: number; // Pipeline value estimate
   daysInStage?: number; // Days in current stage
+  duration?: number; // Duration in days (alias for daysInStage)
+  pipelineValue?: number; // Pipeline value (alias for estimatedValue)
+  caseStudy?: string; // Case study details for successful conversions
 }
 
 export interface Deal {
@@ -41,6 +44,24 @@ export interface Deal {
   lastContact: string;
   probability: number;
   platform?: string; // Channel used (legacy support or DB derived)
+}
+
+export interface Offer {
+  id: string;
+  leadId: string;
+  title: string;
+  description?: string;
+  value: number;
+  stage: 'Proposal' | 'Qualified' | 'Contacted' | 'Won' | 'Lost';
+  probability: number;
+  logQualityRating?: number; // 1-5 stars
+  badFitGoodFit?: string; // 'Pending' | 'Bad Fit' | 'Good Fit' | 'Not Interested' | 'Interested'
+  createdAt: string;
+  updatedAt: string;
+  lead?: {
+    id: string;
+    business: Business;
+  };
 }
 
 export interface KPI {

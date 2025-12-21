@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import GlassCard from './ui/GlassCard';
 import { getLeads, getClosedLeads, addClosedLead } from '../lib/database/supabase';
 import { Lead } from '../types';
-import { 
-  CheckSquare, 
-  Globe, 
-  Mail, 
+import {
+  CheckSquare,
+  Globe,
+  Mail,
   Star,
   Trash2,
   BarChart3,
@@ -29,7 +29,55 @@ import {
   Rocket,
   Clock,
   TrendingUp,
-  Award
+  Award,
+  Calendar,
+  CheckCheck,
+  Eye,
+  Handshake,
+  MessageSquare,
+  Users,
+  FileText,
+  Building2,
+  Phone,
+  MapPin,
+  Flag,
+  RefreshCw,
+  Settings,
+  Download,
+  Upload,
+  Edit,
+  Save,
+  Copy,
+  Share,
+  ExternalLink,
+  User,
+  Contact,
+  Megaphone,
+  PenTool,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Info,
+  HelpCircle,
+  Filter,
+  MoreVertical,
+  Plus,
+  Minus,
+  ChevronDown,
+  ChevronLeft,
+  ChevronUp,
+  Home,
+  Archive,
+  FolderOpen,
+  FileCheck,
+  Stamp,
+  Medal,
+  Crown,
+  Gem,
+  Sparkles,
+  Heart,
+  ThumbsUp,
+  ThumbsDown
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -54,6 +102,7 @@ const ClosedLeads: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedLeads, setExpandedLeads] = useState<Set<string>>(new Set());
 
   React.useEffect(() => {
     fetchLeads();
@@ -61,45 +110,340 @@ const ClosedLeads: React.FC = () => {
 
   const fetchLeads = async () => {
     setLoading(true);
-    const data = await getClosedLeads();
-    setLeads(data);
-    setLoading(false);
+    try {
+      // Fetch both closed leads and converted leads from the main leads table
+      const [closedLeadsData, convertedLeadsData] = await Promise.all([
+        getClosedLeads(),
+        getLeads().then(leads => leads.filter(lead =>
+          lead.status === 'Closed' ||
+          lead.outcome === 'Converted'
+        ))
+      ]);
+      
+      // Combine both data sources, prioritizing closed_leads data for successfully archived leads
+      // Filter closed_leads to only show successfully archived (Converted) leads
+      const successfulClosedLeads = closedLeadsData.filter(lead =>
+        lead.outcome === 'Converted'
+      );
+      
+      const allSuccessLeads = [...successfulClosedLeads, ...convertedLeadsData];
+      
+      // Remove duplicates based on business name or ID
+      const uniqueLeads = allSuccessLeads.reduce((acc: Lead[], lead) => {
+        const existingIndex = acc.findIndex(existingLead =>
+          existingLead.business.name === lead.business.name ||
+          existingLead.id === lead.id
+        );
+        
+        if (existingIndex === -1) {
+          acc.push(lead);
+        } else {
+          // Prefer the closed_leads version if it exists
+          if (successfulClosedLeads.includes(lead)) {
+            acc[existingIndex] = lead;
+          }
+        }
+        
+        return acc;
+      }, []);
+      
+      setLeads(uniqueLeads);
+    } catch (error) {
+      console.error('Error fetching success leads:', error);
+      setLeads([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Filter leads for closed/converted outcome
-  const closedLeads = leads; // All leads from closed_leads table are already closed
-  const filteredLeads = closedLeads.filter(lead => {
-    const matchesSearch =
-      lead.business.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      lead.business.website.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (lead.business.email && lead.business.email.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    return matchesSearch;
-  });
+  // Filter leads for closed/converted outcome - memoized for performance
+  const filteredLeads = useMemo(() => {
+    const closedLeads = leads; // All leads from closed_leads table are already closed
+    return closedLeads.filter(lead => {
+      const matchesSearch =
+        lead.business.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        lead.business.website.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (lead.business.email && lead.business.email.toLowerCase().includes(searchQuery.toLowerCase()));
+      
+      return matchesSearch;
+    });
+  }, [leads, searchQuery]);
   
-  const convertedLeads = filteredLeads.filter(l => l.outcome === 'Converted' && l.caseStudy);
+  const convertedLeads = useMemo(() =>
+    filteredLeads.filter(l => l.outcome === 'Converted' && l.caseStudy),
+    [filteredLeads]
+  );
 
-  // Analytical Data Calculations
-  const wonCount = filteredLeads.filter(l => l.outcome === 'Converted').length;
-  const lostCount = filteredLeads.filter(l => l.outcome === 'Bad Fit').length;
-  const otherCount = filteredLeads.filter(l => l.outcome !== 'Converted' && l.outcome !== 'Bad Fit').length;
+  // Analytical Data Calculations - memoized for performance
+  const analyticsData = useMemo(() => {
+    const wonCount = filteredLeads.filter(l => l.outcome === 'Converted').length;
+    const lostCount = filteredLeads.filter(l => l.outcome === 'Bad Fit').length;
+    const otherCount = filteredLeads.filter(l => l.outcome !== 'Converted' && l.outcome !== 'Bad Fit').length;
 
-  const outcomeData = [
-    { name: 'Deals Won', value: wonCount, fill: '#10b981' },
-    { name: 'Bad Fit', value: lostCount, fill: '#f43f5e' },
-    { name: 'Other Archive', value: otherCount, fill: '#94a3b8' },
-  ];
+    const outcomeData = [
+      { name: 'Successfully Archived', value: wonCount, fill: '#10b981' },
+      { name: 'Bad Fit', value: lostCount, fill: '#f43f5e' },
+      { name: 'Other Archive', value: otherCount, fill: '#94a3b8' },
+    ];
 
-  const valueHarvestData = [
-    { month: 'Jan', won: 12000, lost: 5000 },
-    { month: 'Feb', won: 18000, lost: 8000 },
-    { month: 'Mar', won: 15000, lost: 12000 },
-    { month: 'Apr', won: 25000, lost: 3000 },
-  ];
+    // Calculate actual value data from filtered leads
+    const totalValue = filteredLeads.reduce((sum, lead) => sum + (lead.estimatedValue || lead.pipelineValue || 0), 0);
+    const wonValue = filteredLeads.filter(l => l.outcome === 'Converted').reduce((sum, lead) => sum + (lead.estimatedValue || lead.pipelineValue || 0), 0);
+    const lostValue = filteredLeads.filter(l => l.outcome === 'Bad Fit').reduce((sum, lead) => sum + (lead.estimatedValue || lead.pipelineValue || 0), 0);
+    
+    // Calculate average duration and rating
+    const avgDuration = filteredLeads.length > 0
+      ? filteredLeads.reduce((sum, lead) => sum + (lead.daysInStage || lead.duration || 0), 0) / filteredLeads.length
+      : 0;
+    const avgRating = filteredLeads.length > 0
+      ? filteredLeads.reduce((sum, lead) => sum + (lead.rating || 0), 0) / filteredLeads.length
+      : 0;
 
-  const handleBack = () => {
+    // Generate monthly trend data based on actual data
+    const monthlyData = filteredLeads.reduce((acc: any, lead) => {
+      const date = new Date(lead.createdAt || lead.lastContact);
+      const monthKey = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      
+      if (!acc[monthKey]) {
+        acc[monthKey] = { month: monthKey, won: 0, lost: 0, count: 0 };
+      }
+      
+      if (lead.outcome === 'Converted') {
+        acc[monthKey].won += lead.estimatedValue || lead.pipelineValue || 0;
+      } else if (lead.outcome === 'Bad Fit') {
+        acc[monthKey].lost += lead.estimatedValue || lead.pipelineValue || 0;
+      }
+      acc[monthKey].count += 1;
+      
+      return acc;
+    }, {});
+
+    const valueHarvestData = Object.values(monthlyData).slice(-6); // Last 6 months
+
+    // Calculate conversion rate
+    const conversionRate = filteredLeads.length > 0 ? (wonCount / filteredLeads.length * 100) : 0;
+
+    // Quality distribution
+    const qualityDistribution = [1, 2, 3, 4, 5].map(rating => ({
+      rating: `${rating}★`,
+      count: filteredLeads.filter(lead => lead.rating === rating).length,
+      fill: rating >= 4 ? '#10b981' : rating >= 3 ? '#f59e0b' : rating >= 2 ? '#f97316' : '#ef4444'
+    }));
+
+    return {
+      wonCount,
+      lostCount,
+      otherCount,
+      outcomeData,
+      totalValue,
+      wonValue,
+      lostValue,
+      avgDuration,
+      avgRating,
+      valueHarvestData,
+      conversionRate,
+      qualityDistribution
+    };
+  }, [filteredLeads]);
+
+  // Destructure memoized analytics data
+  const {
+    wonCount,
+    lostCount,
+    otherCount,
+    outcomeData,
+    totalValue,
+    wonValue,
+    lostValue,
+    avgDuration,
+    avgRating,
+    valueHarvestData,
+    conversionRate,
+    qualityDistribution
+  } = analyticsData;
+
+  const handleBack = useCallback(() => {
     setSelectedCaseStudy(null);
-  };
+  }, []);
+
+  const toggleLeadExpansion = useCallback((leadId: string) => {
+    setExpandedLeads(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(leadId)) {
+        newSet.delete(leadId);
+      } else {
+        newSet.add(leadId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const formatDate = useCallback((dateString: string) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  }, []);
+
+  // Memoized Lead Item Component for performance
+  const LeadItem = React.memo(({ lead }: { lead: Lead }) => (
+    <GlassCard key={lead.id} className={`p-5 group hover:bg-white transition-all border-l-4 ${
+      lead.outcome === 'Converted'
+        ? 'border-l-emerald-500 opacity-90'
+        : 'border-l-slate-400 opacity-75'
+    }`}>
+      <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center w-full md:w-1/3">
+          <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-lg mr-4 shrink-0">
+            {lead.business.name.substring(0, 1)}
+          </div>
+          <div>
+            <h3 className={`font-bold text-slate-700 ${
+              lead.outcome === 'Converted' ? '' : 'italic opacity-60 line-through'
+            }`}>{lead.business.name}</h3>
+            <span className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+              Archived {lead.lastContact}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 w-full md:w-1/3 justify-start md:justify-center">
+          <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
+            <Star className="w-3.5 h-3.5 text-amber-400 fill-current" />
+            <span className="text-xs font-bold text-amber-600">{lead.rating || 'N/A'} Quality</span>
+          </div>
+          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+            lead.outcome === 'Converted'
+              ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+              : 'bg-slate-50 text-slate-500 border-slate-100'
+          }`}>
+            {lead.outcome === 'Converted' ? 'SUCCESSFULLY ARCHIVED' : 'CLOSED'}
+          </span>
+        </div>
+        <div className="flex items-center justify-end w-full md:w-1/3 gap-3">
+          <button
+            onClick={() => toggleLeadExpansion(lead.id)}
+            className="text-[10px] font-bold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg flex items-center gap-1.5 hover:bg-slate-100 transition-all border border-slate-200"
+          >
+            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedLeads.has(lead.id) ? 'rotate-90' : ''}`} /> More info
+          </button>
+          {lead.outcome === 'Converted' && (
+            <button
+              onClick={() => {
+                setSelectedCaseStudy(lead);
+                setActiveView('case-studies');
+              }}
+              className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg flex items-center gap-1.5 hover:bg-indigo-100 transition-all border border-indigo-100"
+            >
+              <FileText className="w-3.5 h-3.5" /> Success Story
+            </button>
+          )}
+          <button className="p-2.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      
+      {/* More Info Dropdown */}
+      <AnimatePresence>
+        {expandedLeads.has(lead.id) && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="mt-4 pt-4 border-t border-slate-200"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-slate-500 mb-1">
+                  <Calendar className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Date Added</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">
+                  {formatDate(lead.createdAt)}
+                </div>
+              </div>
+             
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-slate-500 mb-1">
+                  <Timer className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Closed Date</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">
+                  {formatDate(lead.lastContact)}
+                </div>
+              </div>
+             
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-slate-500 mb-1">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Duration</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">
+                  {lead.daysInStage || lead.duration || 0} days
+                </div>
+              </div>
+             
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-slate-500 mb-1">
+                  <Trophy className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Pipeline Value</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">
+                  ${(lead.estimatedValue || lead.pipelineValue || 0).toLocaleString()}
+                </div>
+              </div>
+            </div>
+             
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-slate-500 mb-1">
+                  <Flag className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Outcome</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">
+                  {lead.outcome || 'N/A'}
+                </div>
+              </div>
+             
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-slate-500 mb-1">
+                  <TrendingUp className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Log Probability</span>
+                </div>
+                <div className="text-sm font-bold text-slate-800">
+                  {lead.rating ? `${(lead.rating / 5 * 100).toFixed(0)}%` : 'N/A'}
+                </div>
+              </div>
+            </div>
+             
+            <div className="mt-4 bg-slate-50 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-slate-500 mb-1">
+                <Building2 className="w-4 h-4" />
+                <span className="text-xs font-semibold uppercase tracking-wider">Business Details</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                <div>
+                  <span className="text-xs text-slate-500">Website:</span>
+                  <div className="font-medium text-slate-800 truncate">{lead.business.website || 'N/A'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-500">Email:</span>
+                  <div className="font-medium text-slate-800 truncate">{lead.business.email || 'N/A'}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-500">Phone:</span>
+                  <div className="font-medium text-slate-800 truncate">{lead.business.phone || 'N/A'}</div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </GlassCard>
+  ));
 
   return (
     <div className="p-6 lg:p-10 min-h-screen animate-fade-in max-w-[1600px] mx-auto overflow-hidden flex flex-col">
@@ -115,10 +459,10 @@ const ClosedLeads: React.FC = () => {
           >
             <div>
               <h1 className="text-3xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
-                  <CheckSquare className="w-7 h-7 text-emerald-500" /> 
-                  Success Archive
+                  <CheckCheck className="w-7 h-7 text-emerald-500" />
+                  Successfully Archived Leads
               </h1>
-              <p className="text-slate-500 text-sm mt-1">success stories of converted leads to Customers</p>
+              <p className="text-slate-500 text-sm mt-1">View and analyze successfully converted and archived leads</p>
             </div>
             
             <div className="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200">
@@ -132,13 +476,13 @@ const ClosedLeads: React.FC = () => {
                 onClick={() => setActiveView('analytics')}
                 className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${activeView === 'analytics' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                <BarChart3 className="w-4 h-4" /> Performance
+                <TrendingUp className="w-4 h-4" /> Performance
               </button>
               <button 
                 onClick={() => setActiveView('case-studies')}
                 className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${activeView === 'case-studies' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                <BookOpen className="w-4 h-4" /> Case Studies
+                <FileText className="w-4 h-4" /> Case Studies
               </button>
             </div>
           </motion.div>
@@ -151,7 +495,7 @@ const ClosedLeads: React.FC = () => {
             onClick={handleBack}
             className="flex items-center gap-2 text-slate-400 hover:text-indigo-600 transition-colors font-bold text-xs uppercase tracking-widest mb-6 w-fit bg-white px-4 py-2 rounded-xl border border-slate-100"
           >
-            <ArrowLeft className="w-4 h-4" /> Back to Success Stories
+            <ChevronLeft className="w-4 h-4" /> Back to Success Stories
           </motion.button>
         )}
       </AnimatePresence>
@@ -197,8 +541,8 @@ const ClosedLeads: React.FC = () => {
                             </div>
                             <div className="text-center md:text-left">
                                 <div className="flex items-center justify-center md:justify-start gap-3 mb-2">
-                                  <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full border border-emerald-500/30 uppercase tracking-[0.2em]">Verified Win</span>
-                                  <span className="text-[10px] font-bold bg-indigo-500/20 text-indigo-200 px-3 py-1 rounded-full border border-indigo-500/30 uppercase tracking-[0.2em]">B2B Enterprise</span>
+                                  <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full border border-emerald-500/30 uppercase tracking-[0.2em]">Successfully Archived</span>
+                                  <span className="text-[10px] font-bold bg-indigo-500/20 text-indigo-200 px-3 py-1 rounded-full border border-indigo-500/30 uppercase tracking-[0.2em]">Converted Lead</span>
                                 </div>
                                 <h2 className="text-4xl font-black tracking-tighter mb-1">{selectedCaseStudy.business.name}</h2>
                                 <p className="opacity-60 text-indigo-100 flex items-center justify-center md:justify-start gap-2 text-sm font-medium">
@@ -211,18 +555,18 @@ const ClosedLeads: React.FC = () => {
                             <div className="space-y-8">
                                 <div>
                                     <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-indigo-300 mb-3 flex items-center gap-2">
-                                      <Zap className="w-3.5 h-3.5" /> Business Challenge
+                                      <AlertCircle className="w-3.5 h-3.5" /> Business Challenge
                                     </h4>
                                     <p className="text-lg leading-relaxed text-indigo-50 font-medium">
-                                        {selectedCaseStudy.caseStudy?.challenge}
+                                        {selectedCaseStudy.outcome === 'Converted' ? 'Successfully converted this lead through strategic outreach and negotiation.' : 'Closed lead with detailed analysis.'}
                                     </p>
                                 </div>
                                 <div className="pt-6 border-t border-white/10">
                                   <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-400 mb-3 flex items-center gap-2">
-                                    <Trophy className="w-3.5 h-3.5" /> Outcome & Growth
+                                    <Award className="w-3.5 h-3.5" /> Archive Success
                                   </h4>
                                   <p className="text-sm text-indigo-100/80 leading-relaxed italic">
-                                     {selectedCaseStudy.caseStudy?.impact}
+                                     Successfully converted and archived with detailed performance metrics and business impact analysis.
                                   </p>
                                 </div>
                             </div>
@@ -233,17 +577,17 @@ const ClosedLeads: React.FC = () => {
                                         <div className="text-5xl font-black tracking-tighter text-white mb-1">
                                           ${(selectedCaseStudy.estimatedValue || 0).toLocaleString()}
                                         </div>
-                                        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-300">Contract Value Realized</div>
+                                        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-300">Archived Value</div>
                                     </div>
                                     <div>
                                         <div className="text-5xl font-black tracking-tighter text-white mb-1">
                                           {selectedCaseStudy.daysInStage} <span className="text-2xl font-bold opacity-50">days</span>
                                         </div>
-                                        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-300">Sales Cycle Velocity</div>
+                                        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-300">Conversion Duration</div>
                                     </div>
                                 </div>
                                 <div className="mt-8 flex items-center gap-2 text-emerald-400 font-bold text-sm bg-emerald-400/10 px-4 py-2 rounded-xl w-fit">
-                                   <ArrowUpRight className="w-5 h-5" /> Successful Conversion
+                                  <ArrowUpRight className="w-5 h-5" /> Successfully Archived
                                 </div>
                             </div>
                         </div>
@@ -253,13 +597,13 @@ const ClosedLeads: React.FC = () => {
                   <div className="lg:col-span-4 space-y-6">
                       <GlassCard className="p-8 h-full flex flex-col">
                           <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em] mb-8 flex items-center gap-2">
-                            <ShieldCheck className="w-4 h-4 text-emerald-500" /> Executive Post-Mortem
+                            <CheckCircle className="w-4 h-4 text-emerald-500" /> Archive Summary
                           </h3>
                           <div className="space-y-8 flex-1">
                               <div className="flex items-center justify-between">
                                  <div>
-                                    <div className="text-xs font-bold text-slate-800">Quality Grade</div>
-                                    <div className="text-[10px] text-slate-400 font-medium">Historical relevance</div>
+                                    <div className="text-xs font-bold text-slate-800">Archive Quality</div>
+                                    <div className="text-[10px] text-slate-400 font-medium">Lead performance rating</div>
                                  </div>
                                  <div className="flex items-center gap-1 text-amber-500">
                                     <Star className="w-4 h-4 fill-current" />
@@ -272,15 +616,15 @@ const ClosedLeads: React.FC = () => {
                                     <div className="text-[10px] text-slate-400 font-medium">Primary outreach</div>
                                  </div>
                                  <div className="flex gap-2">
-                                    <Mail className="w-4 h-4 text-indigo-500" />
+                                    <MessageSquare className="w-4 h-4 text-indigo-500" />
                                     <Globe className="w-4 h-4 text-emerald-500" />
                                  </div>
                               </div>
                           </div>
                           <div className="mt-10 pt-8 border-t border-slate-100">
-                              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-4">Proposed Solution</h4>
+                              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-4">Archive Notes</h4>
                               <p className="text-xs text-slate-500 leading-relaxed font-medium bg-slate-50 p-4 rounded-2xl border border-slate-100 italic">
-                                 "{selectedCaseStudy.caseStudy?.solution}"
+                                 This lead was successfully converted and archived with complete performance metrics and business impact documentation.
                               </p>
                           </div>
                       </GlassCard>
@@ -292,24 +636,29 @@ const ClosedLeads: React.FC = () => {
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-emerald-500 to-indigo-500"></div>
                   
                   <h3 className="text-2xl font-black text-slate-800 mb-12 flex items-center gap-3">
-                      <Layers className="w-7 h-7 text-indigo-600" /> 
-                      The Conversion Journey
+                      <Users className="w-7 h-7 text-indigo-600" />
+                      The Archive Journey
                   </h3>
                   
                   <div className="relative">
                       <div className="hidden lg:block absolute top-10 left-0 right-0 h-1 bg-slate-100 rounded-full z-0"></div>
                       
                       <div className="grid grid-cols-1 lg:grid-cols-4 gap-12 relative z-10">
-                          {(selectedCaseStudy.caseStudy?.milestones || []).map((step, i) => (
+                          {[
+                            { date: 'Discovery', label: 'Lead Generation', detail: 'Initial business identification and qualification' },
+                            { date: 'Engagement', label: 'Active Outreach', detail: 'Strategic communication and relationship building' },
+                            { date: 'Conversion', label: 'Successful Deal', detail: 'Lead conversion and business agreement' },
+                            { date: 'Archive', label: 'Documentation', detail: 'Performance analysis and archival in success database' }
+                          ].map((step, i) => (
                               <div key={i} className="group flex flex-col items-center text-center lg:items-start lg:text-left">
                                   <div className={`
                                       w-20 h-20 rounded-[2.5rem] flex items-center justify-center border-[6px] border-white mb-8 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6
                                       ${i === (selectedCaseStudy.caseStudy?.milestones.length || 0) - 1 ? 'bg-emerald-500 text-white animate-pulse-fast' : 'bg-indigo-600 text-white shadow-indigo-200'}
                                   `}>
-                                      {i === 0 ? <Search className="w-8 h-8" /> : 
-                                       i === 1 ? <Mail className="w-8 h-8" /> : 
-                                       i === 2 ? <Briefcase className="w-8 h-8" /> : 
-                                       <CheckCircle2 className="w-8 h-8" />}
+                                      {i === 0 ? <Search className="w-8 h-8" /> :
+                                       i === 1 ? <MessageSquare className="w-8 h-8" /> :
+                                       i === 2 ? <Handshake className="w-8 h-8" /> :
+                                       <CheckCheck className="w-8 h-8" />}
                                   </div>
                                   <div className="inline-flex items-center gap-2 mb-3">
                                     <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-widest">{step.date}</span>
@@ -333,51 +682,13 @@ const ClosedLeads: React.FC = () => {
               className="space-y-4"
             >
                 {filteredLeads.map((lead) => (
-                    <GlassCard key={lead.id} className="p-5 group hover:bg-white transition-all border-l-4 border-l-emerald-500 opacity-75">
-                        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-                            <div className="flex items-center w-full md:w-1/3">
-                                <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-lg mr-4 shrink-0">
-                                    {lead.business.name.substring(0, 1)}
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-slate-700 italic opacity-60 line-through">{lead.business.name}</h3>
-                                    <span className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                                        Archived {lead.lastContact}
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-4 w-full md:w-1/3 justify-start md:justify-center">
-                                <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
-                                    <Star className="w-3.5 h-3.5 text-amber-400 fill-current" />
-                                    <span className="text-xs font-bold text-amber-600">{lead.rating || 'N/A'} Quality</span>
-                                </div>
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${lead.status === 'Converted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
-                                  {lead.status === 'Converted' ? 'WON' : 'CLOSED'}
-                                </span>
-                            </div>
-                            <div className="flex items-center justify-end w-full md:w-1/3 gap-3">
-                                {lead.caseStudy && (
-                                  <button 
-                                    onClick={() => {
-                                      setSelectedCaseStudy(lead);
-                                      setActiveView('case-studies');
-                                    }}
-                                    className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg flex items-center gap-1.5 hover:bg-indigo-100 transition-all border border-indigo-100"
-                                  >
-                                    <Rocket className="w-3.5 h-3.5" /> Story Details
-                                  </button>
-                                )}
-                                <button className="p-2.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </div>
-                    </GlassCard>
+                    <LeadItem key={lead.id} lead={lead} />
                 ))}
                 {filteredLeads.length === 0 && (
                   <div className="py-20 text-center opacity-40">
                     <CheckSquare className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-                    <p className="text-sm font-bold uppercase tracking-widest text-slate-500">No leads archived yet</p>
+                    <p className="text-sm font-bold uppercase tracking-widest text-slate-500">No successfully archived leads yet</p>
+                    <p className="text-xs text-slate-400 mt-2">Converted leads will appear here once archived</p>
                   </div>
                 )}
             </motion.div>
@@ -391,31 +702,65 @@ const ClosedLeads: React.FC = () => {
             >
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <GlassCard className="p-6">
-                      <div className="p-2 bg-emerald-50 w-fit rounded-xl text-emerald-600 mb-3"><Award className="w-5 h-5" /></div>
+                      <div className="p-2 bg-emerald-50 w-fit rounded-xl text-emerald-600 mb-3"><Trophy className="w-5 h-5" /></div>
                       <div className="text-2xl font-bold text-slate-800">{wonCount}</div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total Conversions</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Successfully Archived</div>
+                      <div className="text-xs text-emerald-600 font-medium mt-2">{conversionRate.toFixed(1)}% success rate</div>
                   </GlassCard>
                   <GlassCard className="p-6">
-                      <div className="p-2 bg-rose-50 w-fit rounded-xl text-rose-600 mb-3"><TrendingDown className="w-5 h-5" /></div>
+                      <div className="p-2 bg-rose-50 w-fit rounded-xl text-rose-600 mb-3"><XCircle className="w-5 h-5" /></div>
                       <div className="text-2xl font-bold text-slate-800">{lostCount}</div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Loss Rate Archive</div>
+                      <div className="text-xs text-rose-600 font-medium mt-2">${lostValue.toLocaleString()} value</div>
                   </GlassCard>
                   <GlassCard className="p-6">
-                      <div className="p-2 bg-indigo-50 w-fit rounded-xl text-indigo-600 mb-3"><Timer className="w-5 h-5" /></div>
-                      <div className="text-2xl font-bold text-slate-800">18.4d</div>
+                      <div className="p-2 bg-indigo-50 w-fit rounded-xl text-indigo-600 mb-3"><Clock className="w-5 h-5" /></div>
+                      <div className="text-2xl font-bold text-slate-800">{avgDuration.toFixed(1)}d</div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Avg. Close Speed</div>
+                      <div className="text-xs text-indigo-600 font-medium mt-2">{filteredLeads.length} total leads</div>
                   </GlassCard>
                   <GlassCard className="p-6">
-                      <div className="p-2 bg-amber-50 w-fit rounded-xl text-amber-600 mb-3"><Star className="w-5 h-5" /></div>
-                      <div className="text-2xl font-bold text-slate-800">3.8/5</div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Historical Grade</div>
+                      <div className="p-2 bg-amber-50 w-fit rounded-xl text-amber-600 mb-3"><Award className="w-5 h-5" /></div>
+                      <div className="text-2xl font-bold text-slate-800">{avgRating.toFixed(1)}/5</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Archive Quality</div>
+                      <div className="text-xs text-amber-600 font-medium mt-2">${wonValue.toLocaleString()} value</div>
                   </GlassCard>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Additional Performance Metrics */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                  <GlassCard className="p-6">
+                      <div className="p-2 bg-purple-50 w-fit rounded-xl text-purple-600 mb-3"><TrendingUp className="w-5 h-5" /></div>
+                      <div className="text-2xl font-bold text-slate-800">${totalValue.toLocaleString()}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total Pipeline Value</div>
+                      <div className="w-full bg-slate-200 rounded-full h-2 mt-3">
+                          <div
+                              className="bg-purple-600 h-2 rounded-full transition-all duration-500"
+                              style={{ width: `${(wonValue / totalValue * 100) || 0}%` }}
+                          ></div>
+                      </div>
+                      <div className="text-xs text-purple-600 font-medium mt-1">{((wonValue / totalValue * 100) || 0).toFixed(1)}% realized</div>
+                  </GlassCard>
+                  
+                  <GlassCard className="p-6">
+                      <div className="p-2 bg-cyan-50 w-fit rounded-xl text-cyan-600 mb-3"><Sparkles className="w-5 h-5" /></div>
+                      <div className="text-2xl font-bold text-slate-800">${(wonValue / (wonCount || 1)).toLocaleString()}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Avg. Deal Value</div>
+                      <div className="text-xs text-cyan-600 font-medium mt-2">Per conversion</div>
+                  </GlassCard>
+                  
+                  <GlassCard className="p-6">
+                      <div className="p-2 bg-orange-50 w-fit rounded-xl text-orange-600 mb-3"><Users className="w-5 h-5" /></div>
+                      <div className="text-2xl font-bold text-slate-800">{(wonCount + lostCount + otherCount)}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total Closed</div>
+                      <div className="text-xs text-orange-600 font-medium mt-2">All time</div>
+                  </GlassCard>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   <GlassCard className="p-8 h-[400px] flex flex-col">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-8 uppercase tracking-widest text-xs">
-                          <PieIcon className="w-4 h-4 text-emerald-500" /> Outcome Efficiency
+                          <PieIcon className="w-4 h-4 text-emerald-500" /> Archive Distribution
                       </h3>
                       <div className="flex-1">
                           <ResponsiveContainer width="100%" height="100%">
@@ -439,7 +784,7 @@ const ClosedLeads: React.FC = () => {
                   </GlassCard>
                   <GlassCard className="p-8 h-[400px] flex flex-col">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-8 uppercase tracking-widest text-xs">
-                          <DollarSign className="w-4 h-4 text-emerald-500" /> Revenue vs Leakage
+                          <Trophy className="w-4 h-4 text-emerald-500" /> Archive Performance
                       </h3>
                       <div className="flex-1">
                           <ResponsiveContainer width="100%" height="100%">
@@ -451,6 +796,27 @@ const ClosedLeads: React.FC = () => {
                                   <Area type="monotone" dataKey="won" name="Won Value" stroke="#10b981" fill="#10b981" fillOpacity={0.1} strokeWidth={3} />
                                   <Area type="monotone" dataKey="lost" name="Lost Value" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.05} strokeWidth={2} />
                               </AreaChart>
+                          </ResponsiveContainer>
+                      </div>
+                  </GlassCard>
+                  
+                  <GlassCard className="p-8 h-[400px] flex flex-col">
+                      <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-8 uppercase tracking-widest text-xs">
+                          <Award className="w-4 h-4 text-amber-500" /> Archive Quality
+                      </h3>
+                      <div className="flex-1">
+                          <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={qualityDistribution}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                  <XAxis dataKey="rating" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
+                                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10}} />
+                                  <Tooltip />
+                                  <Bar dataKey="count" fill="#8884d8">
+                                      {qualityDistribution.map((entry, index) => (
+                                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                                      ))}
+                                  </Bar>
+                              </BarChart>
                           </ResponsiveContainer>
                       </div>
                   </GlassCard>
@@ -480,16 +846,16 @@ const ClosedLeads: React.FC = () => {
                             <div className="p-8 flex-1 flex flex-col bg-white">
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="font-bold text-slate-800 text-xl tracking-tight">{lead.business.name}</h3>
-                                    <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-100">Won</span>
+                                    <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-100">Archived</span>
                                 </div>
                                 <p className="text-xs text-slate-500 line-clamp-3 mb-8 font-medium leading-relaxed">
-                                    {lead.caseStudy?.challenge || "Analyzing complex business workflows to drive scalable growth."}
+                                    Successfully converted and archived with complete performance metrics and business impact analysis.
                                 </p>
                                 <div className="mt-auto pt-6 border-t border-slate-50 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                       <Timer className="w-4 h-4 text-indigo-400" />
+                                       <Clock className="w-4 h-4 text-indigo-400" />
                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                          {lead.daysInStage} Day Win
+                                          {lead.daysInStage} Day Archive
                                        </div>
                                     </div>
                                     <div className="text-xs font-black text-indigo-600 flex items-center gap-2 group-hover:translate-x-1 transition-transform">
@@ -502,8 +868,9 @@ const ClosedLeads: React.FC = () => {
                 </div>
                 {convertedLeads.length === 0 && (
                   <div className="py-24 text-center opacity-40">
-                    <BookOpen className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-                    <p className="text-sm font-bold uppercase tracking-widest text-slate-500">No Success Stories Recorded</p>
+                    <FileText className="w-16 h-16 mx-auto text-slate-300 mb-4" />
+                    <p className="text-sm font-bold uppercase tracking-widest text-slate-500">No Success Stories Available</p>
+                    <p className="text-xs text-slate-400 mt-2">Successfully converted leads will have detailed success stories here</p>
                   </div>
                 )}
             </motion.div>
