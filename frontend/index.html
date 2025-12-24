@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clutcher</title>
+    <link rel="icon" type="image/jpeg" href="/favicon.jpg" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "sans-serif"],
+            },
+            fontSize: {
+              'xs': ['11px'],
+              'sm': ['12px'],
+              'base': ['13px'],
+              'lg': ['14px'],
+              'xl': ['15px'],
+              '2xl': ['16px'],
+              '3xl': ['17px'],
+            },
+            spacing: {
+              '1': '4px',
+              '2': '6px',
+              '3': '8px',
+              '4': '10px',
+              '5': '12px',
+              '6': '16px',
+              '8': '20px',
+              '10': '24px',
+              '12': '28px',
+              '16': '32px',
+              '20': '36px',
+              '24': '40px',
+            },
+            colors: {
+              glass: {
+                100: "rgba(255, 255, 255, 0.4)",
+                200: "rgba(255, 255, 255, 0.6)",
+                300: "rgba(255, 255, 255, 0.8)",
+                border: "rgba(255, 255, 255, 0.5)",
+              },
+              neo: {
+                bg: "#f8fafc",
+                text: "#475569",
+              }
+            },
+            boxShadow: {
+              'neo': '5px 5px 10px #d1d5db, -5px -5px 10px #ffffff',
+              'neo-sm': '3px 3px 6px #d1d5db, -3px -3px 6px #ffffff',
+              'neo-md': '8px 8px 16px #d1d5db, -8px -8px 16px #ffffff',
+              'neo-inset': 'inset 5px 5px 10px #d1d5db, inset -5px -5px 10px #ffffff',
+              'neo-inset-sm': 'inset 2px 2px 5px #d1d5db, inset -2px -2px 5px #ffffff',
+              'neo-glow': '0 0 15px rgba(99, 102, 241, 0.4)',
+              'neo-glow-sm': '0 0 10px rgba(99, 102, 241, 0.3)',
+            },
+            animation: {
+              "fade-in": "fadeIn 0.5s ease-out",
+              "slide-in-right": "slideInRight 0.3s ease-out",
+              "pulse-fast": "pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+            },
+            keyframes: {
+              fadeIn: {
+                "0%": { opacity: "0", transform: "translateY(10px)" },
+                "100%": { opacity: "1", transform: "translateY(0)" },
+              },
+              slideInRight: {
+                "0%": { transform: "translateX(100%)" },
+                "100%": { transform: "translateX(0)" },
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      body {
+        background-color: #f8fafc;
+        background-image: radial-gradient(
+            at 0% 0%,
+            hsla(210, 40%, 96%, 1) 0,
+            transparent 50%
+          ),
+          radial-gradient(at 100% 0%, hsla(220, 40%, 96%, 1) 0, transparent 50%);
+        background-attachment: fixed;
+      }
+      /* Noise overlay for texture */
+      body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: -1;
+      }
+
+      /* Custom Scrollbar for Glassy Feel */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.3);
+        border-radius: 10px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(148, 163, 184, 0.5);
+      }
+
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+          "react/": "https://aistudiocdn.com/react@^19.2.0/",
+          "react": "https://aistudiocdn.com/react@^19.2.0",
+          "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+          "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
+          "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.0",
+          "framer-motion": "https://aistudiocdn.com/framer-motion@^12.4.1"
+        }
+      }
+    </script>
+    <link rel="stylesheet" href="/index.css" />
+  </head>
+  <body
+    class="text-slate-600 antialiased selection:bg-indigo-100 selection:text-indigo-700"
+  >
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
