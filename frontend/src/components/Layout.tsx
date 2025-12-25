@@ -3,6 +3,7 @@ import Sidebar from './Sidebar';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Hexagon, Database, Activity as ActivityIcon, Bell, Clock, CheckCircle2 } from 'lucide-react';
 import { getActivities } from '../lib/database/supabase';
+import { Analytics } from '@vercel/analytics/next';
 
 const Layout: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -116,6 +117,7 @@ const Layout: React.FC = () => {
           <Outlet />
         </div>
       </main>
+      <Analytics />
     </div>
   );
 };
